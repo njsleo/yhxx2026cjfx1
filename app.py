@@ -52,7 +52,7 @@ if AI_API_KEY: client = openai.OpenAI(api_key=AI_API_KEY, base_url="https://api.
 else: client = None
 
 # ==============================================================================
-# 🛠️ 核心引擎：由单科表动态聚合生成【总分大表】与【排名】
+# 🛠️ 核心引擎：由单科表动态聚合生成【总分大表】与【排名】(防弹容错版)
 # ==============================================================================
 @st.cache_data(ttl=600)
 def load_data(url, header_lines=0):
@@ -62,7 +62,7 @@ def load_data(url, header_lines=0):
 
 @st.cache_data(ttl=600, show_spinner=False)
 def build_master_df(exam_idx):
-    """超级聚合引擎：把单科拼成总分，并自动判定方向与排名"""
+    """超级聚合引擎：防弹级容错算分"""
     if exam_idx < 0 or exam_idx >= len(EXAMS): return None
     exam = EXAMS[exam_idx]
     dfs = []
@@ -75,21 +75,27 @@ def build_master_df(exam_idx):
             if df_sub is not None:
                 name_c, id_c, cls_c = None, None, None
                 for col in df_sub.columns:
-                    cstr = str(col[0])
+                    cstr = str(col[0]) if isinstance(col, tuple) else str(col)
                     if '姓名' in cstr: name_c = col
                     elif '考号' in cstr or '学号' in cstr: id_c = col
                     elif '班级' in cstr: cls_c = col
+                    
                 if name_c and id_c:
                     res = []
                     for _, row in df_sub.iterrows():
                         tot = 0
                         for c in df_sub.columns:
-                            try: full = float(c[2])
-                            except: full = 0
-                            if full > 0 and '姓名' not in str(c[0]) and '考号' not in str(c[0]):
-                                try: val = float(row[c])
-                                except: val = 0
-                                tot += val
+                            # 完全跳过特征列，避免误伤
+                            if c in [name_c, id_c, cls_c]: continue
+                            cstr = str(c[0]) if isinstance(c, tuple) else str(c)
+                            if '总分' in cstr or '排名' in cstr: continue
+                            
+                            # 暴力求和，无需依赖第三行满分值
+                            try: 
+                                val = float(row[c])
+                                if pd.notna(val): tot += val
+                            except: pass
+                                
                         s_name = str(row[name_c]).strip()
                         s_id = str(row[id_c]).strip()
                         s_cls = str(row[cls_c]).strip() if cls_c else "未分班"
@@ -97,22 +103,17 @@ def build_master_df(exam_idx):
                     if res: dfs.append(pd.DataFrame(res))
     
     if not dfs: return None
-    # 将所有单科按姓名和考号完美融合
     master = functools.reduce(lambda l, r: pd.merge(l, r, on=['姓名','考号','班级'], how='outer'), dfs)
     
-    # 计算总分
     present_subs = [s for s in subs if s in master.columns]
     master[present_subs] = master[present_subs].fillna(0)
     master['总分'] = master[present_subs].sum(axis=1).round(1)
     
-    # 智能判定物理/历史方向
     def get_dir(r):
         if r.get('物理', 0) > 0: return "物理方向"
         if r.get('历史', 0) > 0: return "历史方向"
         return "综合方向"
     master['方向'] = master.apply(get_dir, axis=1)
-    
-    # 自动计算班级排名
     master['班级排名'] = master.groupby(['班级', '方向'])['总分'].rank(ascending=False, method='min').fillna(0).astype(int)
     return master
 
@@ -180,7 +181,6 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
     if not st.session_state.logged_in_student:
         st.markdown("<h1 class='main-title'>🏫 英华学校高中部考试学情智能分析系统</h1>", unsafe_allow_html=True)
         
-        # 动态光荣榜生成
         latest_master = build_master_df(LATEST_EXAM_IDX)
         if latest_master is not None and not latest_master.empty:
             top_p = latest_master[latest_master['方向'] == '物理方向'].sort_values('总分', ascending=False).head(5)['姓名'].tolist()
@@ -201,7 +201,7 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
         with col_mid:
             with st.form("student_login"):
                 st.markdown("<h3 style='text-align: center; color: #555;'>👨‍🎓 学生/家长登录入口</h3><br>", unsafe_allow_html=True)
-                st.info("💡 提示：系统会自动根据您的学科分数识别方向。")
+                st.info("💡 提示：系统会自动根据您的学科分数识别文理方向。")
                 name = st.text_input("👤 学生姓名", placeholder="请输入真实姓名")
                 stu_id = st.text_input("🔢 考号/学号", placeholder="请输入准确考号")
                 if st.form_submit_button("🔍 立即查分", use_container_width=True):
@@ -222,11 +222,10 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
     
     else:
         c1, c2 = st.columns([4, 1])
-        c1.markdown(f"**当前用户：** {st.session_state.logged_in_student} | **系统自动判定方向：** {st.session_state.logged_in_direction}")
+        c1.markdown(f"**当前用户：** {st.session_state.logged_in_student} | **系统判定方向：** {st.session_state.logged_in_direction}")
         if c2.button("🚪 退出登录", use_container_width=True): logout()
         st.divider()
 
-        # 获取最新大表
         master_df = build_master_df(LATEST_EXAM_IDX)
         stu_data = master_df[(master_df['姓名'] == st.session_state.logged_in_student) & (master_df['考号'] == st.session_state.logged_in_id)].iloc[0]
         
@@ -237,9 +236,12 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
             k1.metric("姓名", stu_data['姓名'])
             k2.metric("班级", stu_data['班级'])
             k3.metric("总分", f"{stu_data['总分']}")
-            k4.metric("班级内排名", stu_data['班级排名'])
+            k4.metric("班级排名", stu_data['班级排名'])
             
-            st.markdown("<br>### 📊 各科得分对比", unsafe_allow_html=True)
+            # 修复 Markdown 渲染断行问题
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("### 📊 各科得分对比")
+            
             subs = ['语文','数学','英语','物理','化学','生物','历史','政治','地理']
             valid_subs = [s for s in subs if s in stu_data and stu_data[s] > 0]
             
@@ -282,7 +284,7 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                     st.plotly_chart(fig_rank, use_container_width=True)
             else: st.info("暂未抓取到您的历史轨迹。")
 
-        # --- 模块 3: 深度诊断 ---
+        # --- 模块 3: 深度诊断 (新增智能满分回退) ---
         elif selected_nav == "深度诊断":
             avail_subs = [s for s in ['语文','数学','英语','物理','化学','生物','历史','政治','地理'] if s in stu_data and stu_data[s] > 0 and LATEST_EXAM.get(s)]
             if not avail_subs: st.info("暂未配置您所考科目的详细题库数据。")
@@ -290,27 +292,46 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                 sel_sub = st.selectbox("👇 选择诊断科目", avail_subs)
                 df_diag = load_data(LATEST_EXAM[sel_sub], header_lines=[0, 1, 2])
                 if df_diag is not None:
-                    name_idx, id_idx = -1, -1
-                    for i, col in enumerate(df_diag.columns):
-                        if '姓名' in str(col[0]): name_idx = i
-                        if '考号' in str(col[0]) or '学号' in str(col[0]): id_idx = i
-                    if name_idx != -1 and id_idx != -1:
-                        all_names = df_diag.iloc[:, name_idx].astype(str).str.strip().values
-                        all_ids = df_diag.iloc[:, id_idx].astype(str).str.strip().values
+                    name_c, id_c, cls_c = None, None, None
+                    for col in df_diag.columns:
+                        cstr = str(col[0]) if isinstance(col, tuple) else str(col)
+                        if '姓名' in cstr: name_c = col
+                        elif '考号' in cstr or '学号' in cstr: id_c = col
+                        elif '班级' in cstr: cls_c = col
+                        
+                    if name_c and id_c:
+                        all_names = df_diag[name_c].astype(str).str.strip().values
+                        all_ids = df_diag[id_c].astype(str).str.strip().values
                         found_idx = -1
                         for idx, (n, i) in enumerate(zip(all_names, all_ids)):
                             if n == st.session_state.logged_in_student and i == st.session_state.logged_in_id: found_idx = idx; break
+                            
                         if found_idx != -1:
                             knowledge_map = {} 
                             for col in df_diag.columns:
-                                q_name, k_point = str(col[0]).strip(), str(col[1]).strip()
-                                try: full = float(col[2])
+                                if col in [name_c, id_c, cls_c]: continue
+                                cstr = str(col[0]) if isinstance(col, tuple) else str(col)
+                                if '总分' in cstr or '排名' in cstr: continue
+                                
+                                q_name = str(col[0]).strip() if isinstance(col, tuple) else str(col).strip()
+                                k_point = str(col[1]).strip() if isinstance(col, tuple) and len(col) > 1 else q_name
+                                if k_point == "" or k_point.startswith("Unnamed"): k_point = q_name
+                                
+                                try: full = float(col[2]) if isinstance(col, tuple) and len(col) > 2 else 0
                                 except: full = 0
-                                if '姓名' in q_name or '考号' in q_name or full <= 0: continue
+                                
+                                # 🌟 智能回退：如果没拿到表头的满分，自动找全班最高分作为满分参考
+                                if full <= 0:
+                                    try: full = float(pd.to_numeric(df_diag[col], errors='coerce').max())
+                                    except: full = 0
+                                
+                                if full <= 0: continue
+                                
                                 if k_point not in knowledge_map: knowledge_map[k_point] = {'my': 0, 'full': 0, 'class_total': 0}
                                 try: my_s = float(df_diag.iloc[found_idx][col])
                                 except: my_s = 0
                                 class_s = pd.to_numeric(df_diag[col], errors='coerce').mean()
+                                
                                 knowledge_map[k_point]['my'] += my_s
                                 knowledge_map[k_point]['full'] += full
                                 knowledge_map[k_point]['class_total'] += class_s
@@ -366,7 +387,6 @@ elif selected_nav == "教师后台":
         with col_mid:
             with st.container(border=True):
                 st.markdown("<h3 style='text-align: center; color: #555;'>👨‍🏫 教职工专属通道</h3><br>", unsafe_allow_html=True)
-                
                 t_name = st.text_input("👤 您的姓名 (需与学校花名册一致)")
                 pwd = st.text_input("🔐 专属密码", type="password")
                 
@@ -413,9 +433,7 @@ elif selected_nav == "教师后台":
             adm_direction = st.selectbox("👉 选择分析群体", ["物理方向", "历史方向", "综合方向"])
             df_filtered = master_df[master_df['方向'] == adm_direction]
             
-            # ========== 🚀 RBAC 权限拦截 ==========
-            if role == "教务处":
-                st.success("👑 全局最高权限，可查看所有班级数据。")
+            if role == "教务处": st.success("👑 全局最高权限，可查看所有班级数据。")
             elif role == "班主任":
                 df_filtered = df_filtered[df_filtered['班级'].isin(my_classes)]
                 st.success(f"🛡️ 班级保护生效：仅查看【{'、'.join(my_classes)}】全科成绩。")
@@ -433,20 +451,39 @@ elif selected_nav == "教师后台":
                         st.plotly_chart(px.bar(class_avg, x='班级', y=subject, text_auto=True, title=f"所带班级【{subject}】均分对比"), use_container_width=True)
                         st.dataframe(df_filtered[['姓名', '班级', subject]].sort_values(by=subject, ascending=False), use_container_width=True)
                         
-                        # AI教研
                         if LATEST_EXAM.get(subject):
                             st.divider()
                             st.markdown(f"#### 🧠 【{subject}】底层共性诊断与 AI 教研")
                             df_diag = load_data(LATEST_EXAM[subject], header_lines=[0, 1, 2])
                             if df_diag is not None:
+                                name_c, id_c, cls_c = None, None, None
+                                for col in df_diag.columns:
+                                    cstr = str(col[0]) if isinstance(col, tuple) else str(col)
+                                    if '姓名' in cstr: name_c = col
+                                    elif '考号' in cstr or '学号' in cstr: id_c = col
+                                    elif '班级' in cstr: cls_c = col
+                                    
                                 k_stats = {}
                                 for col in df_diag.columns:
-                                    try: full = float(col[2])
+                                    if col in [name_c, id_c, cls_c]: continue
+                                    cstr = str(col[0]) if isinstance(col, tuple) else str(col)
+                                    if '总分' in cstr or '排名' in cstr: continue
+                                    
+                                    q_name = str(col[0]).strip() if isinstance(col, tuple) else str(col).strip()
+                                    kp = str(col[1]).strip() if isinstance(col, tuple) and len(col) > 1 else q_name
+                                    if kp == "" or kp.startswith("Unnamed"): kp = q_name
+                                    
+                                    try: full = float(col[2]) if isinstance(col, tuple) and len(col) > 2 else 0
                                     except: full = 0
-                                    if full > 0 and '姓名' not in str(col[0]):
-                                        kp = str(col[1]).strip()
+                                    
+                                    if full <= 0:
+                                        try: full = float(pd.to_numeric(df_diag[col], errors='coerce').max())
+                                        except: full = 0
+                                        
+                                    if full > 0:
                                         if kp not in k_stats: k_stats[kp] = []
                                         k_stats[kp].append(pd.to_numeric(df_diag[col], errors='coerce').mean() / full)
+                                        
                                 if k_stats:
                                     k_final = [{"知识点": kp, "掌握率": round(sum(rates)/len(rates)*100, 1)} for kp, rates in k_stats.items()]
                                     df_k = pd.DataFrame(k_final).sort_values("掌握率")
