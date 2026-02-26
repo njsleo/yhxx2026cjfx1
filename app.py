@@ -1,471 +1,462 @@
 import streamlit as st
 import pandas as pd
-import io
-import re
-from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
-from openpyxl.utils import get_column_letter
+import plotly.graph_objects as go
+import plotly.express as px
+from streamlit_option_menu import option_menu
+import openai
+import os
+import functools
 
-# ================= 1. 网页基础设置 & 究极 UI 美化 =================
-st.set_page_config(page_title="教师课时管理系统", page_icon="🎓", layout="wide")
+# ==============================================================================
+# 1. 页面基础配置 
+# ==============================================================================
+st.set_page_config(page_title="英华学校高中部考试学情智能分析", layout="wide", page_icon="🏫", initial_sidebar_state="collapsed")
+
+# ==============================================================================
+# 🔐 安全配置与【时间胶囊】动态数据源读取
+# ==============================================================================
+try:
+    ADMIN_PASSWORD = st.secrets["ADMIN_PWD"]
+    HOMEROOM_PASSWORD = st.secrets.get("HOMEROOM_PWD", ADMIN_PASSWORD) 
+    TEACHER_PASSWORD = st.secrets.get("TEACHER_PWD", ADMIN_PASSWORD)
+    URL_TEACHER_ROSTER = st.secrets.get("URL_TEACHER_ROSTER", "") 
+    AI_API_KEY = st.secrets.get("DEEPSEEK_API_KEY", "")
+    
+    # 🌟 动态读取历次考试的全部单科链接
+    EXAMS = []
+    for i in range(1, 21):
+        name = st.secrets.get(f"EXAM_NAME_{i}")
+        if name:
+            EXAMS.append({
+                "name": name,
+                "语文": st.secrets.get(f"URL_CHINESE_{i}", ""),
+                "数学": st.secrets.get(f"URL_MATH_{i}", ""),
+                "英语": st.secrets.get(f"URL_ENGLISH_{i}", ""),
+                "物理": st.secrets.get(f"URL_PHYSICS_{i}", ""),
+                "化学": st.secrets.get(f"URL_CHEMISTRY_{i}", ""),
+                "生物": st.secrets.get(f"URL_BIOLOGY_{i}", ""),
+                "历史": st.secrets.get(f"URL_HISTORY_{i}", ""),
+                "政治": st.secrets.get(f"URL_POLITICS_{i}", ""),
+                "地理": st.secrets.get(f"URL_GEOGRAPHY_{i}", "")
+            })
+            
+    # 自动将编号最大的考试设为“最新考试”
+    LATEST_EXAM_IDX = len(EXAMS) - 1 if EXAMS else -1
+    LATEST_EXAM = EXAMS[-1] if EXAMS else None
+
+except Exception as e:
+    st.error("⚠️ 系统配置读取失败，请检查 Streamlit 后台的 Secrets。")
+    st.stop()
+
+if AI_API_KEY: client = openai.OpenAI(api_key=AI_API_KEY, base_url="https://api.deepseek.com")
+else: client = None
+
+# ==============================================================================
+# 🛠️ 核心引擎：由单科表动态聚合生成【总分大表】与【排名】
+# ==============================================================================
+@st.cache_data(ttl=600)
+def load_data(url, header_lines=0):
+    if not url or not url.strip(): return None
+    try: return pd.read_csv(url, header=header_lines, on_bad_lines='skip')
+    except: return None
+
+@st.cache_data(ttl=600, show_spinner=False)
+def build_master_df(exam_idx):
+    """超级聚合引擎：把单科拼成总分，并自动判定方向与排名"""
+    if exam_idx < 0 or exam_idx >= len(EXAMS): return None
+    exam = EXAMS[exam_idx]
+    dfs = []
+    subs = ['语文','数学','英语','物理','化学','生物','历史','政治','地理']
+    
+    for sub in subs:
+        url = exam.get(sub)
+        if url:
+            df_sub = load_data(url, header_lines=[0,1,2])
+            if df_sub is not None:
+                name_c, id_c, cls_c = None, None, None
+                for col in df_sub.columns:
+                    cstr = str(col[0])
+                    if '姓名' in cstr: name_c = col
+                    elif '考号' in cstr or '学号' in cstr: id_c = col
+                    elif '班级' in cstr: cls_c = col
+                if name_c and id_c:
+                    res = []
+                    for _, row in df_sub.iterrows():
+                        tot = 0
+                        for c in df_sub.columns:
+                            try: full = float(c[2])
+                            except: full = 0
+                            if full > 0 and '姓名' not in str(c[0]) and '考号' not in str(c[0]):
+                                try: val = float(row[c])
+                                except: val = 0
+                                tot += val
+                        s_name = str(row[name_c]).strip()
+                        s_id = str(row[id_c]).strip()
+                        s_cls = str(row[cls_c]).strip() if cls_c else "未分班"
+                        res.append({'姓名': s_name, '考号': s_id, '班级': s_cls, sub: round(tot, 1)})
+                    if res: dfs.append(pd.DataFrame(res))
+    
+    if not dfs: return None
+    # 将所有单科按姓名和考号完美融合
+    master = functools.reduce(lambda l, r: pd.merge(l, r, on=['姓名','考号','班级'], how='outer'), dfs)
+    
+    # 计算总分
+    present_subs = [s for s in subs if s in master.columns]
+    master[present_subs] = master[present_subs].fillna(0)
+    master['总分'] = master[present_subs].sum(axis=1).round(1)
+    
+    # 智能判定物理/历史方向
+    def get_dir(r):
+        if r.get('物理', 0) > 0: return "物理方向"
+        if r.get('历史', 0) > 0: return "历史方向"
+        return "综合方向"
+    master['方向'] = master.apply(get_dir, axis=1)
+    
+    # 自动计算班级排名
+    master['班级排名'] = master.groupby(['班级', '方向'])['总分'].rank(ascending=False, method='min').fillna(0).astype(int)
+    return master
+
+# ==============================================================================
+# 🧠 AI 导师功能定义 (30天缓存)
+# ==============================================================================
+@st.cache_data(ttl=2592000, show_spinner=False)
+def get_ai_advice_for_student(student_name, subject, weak_points, strong_points):
+    if not client: return "⚠️ AI 尚未配置，无法生成建议。"
+    prompt = f"你是拥有20年经验的高中{subject}教师。学生 {student_name} 优势：{strong_points}。薄弱：{weak_points}。请写约300字的个性化鼓励和提分计划。"
+    try:
+        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是专业AI导师。"}, {"role": "user", "content": prompt}])
+        return res.choices[0].message.content
+    except Exception as e: return f"AI 生成失败: {e}"
+
+@st.cache_data(ttl=2592000, show_spinner=False)
+def get_ai_advice_for_teacher(subject, weak_points_list):
+    if not client: return "⚠️ AI 尚未配置。"
+    prompt = f"你是教研员。高三年级{subject}失分严重的共性薄弱点是：{weak_points_list}。请给老师们写约300字的讲评课教研建议。"
+    try:
+        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是教研专家AI。"}, {"role": "user", "content": prompt}])
+        return res.choices[0].message.content
+    except Exception as e: return f"AI 生成失败: {e}"
+
+# ==============================================================================
+# --- 状态与 CSS 样式 ---
+# ==============================================================================
+if 'logged_in_student' not in st.session_state: st.session_state.logged_in_student = None
+if 'logged_in_id' not in st.session_state: st.session_state.logged_in_id = None
+if 'logged_in_direction' not in st.session_state: st.session_state.logged_in_direction = None
+if 'teacher_role' not in st.session_state: st.session_state.teacher_role = None 
+if 'teacher_name' not in st.session_state: st.session_state.teacher_name = None
+if 'teacher_subject' not in st.session_state: st.session_state.teacher_subject = None
+if 'teacher_classes' not in st.session_state: st.session_state.teacher_classes = []
+
+def logout():
+    for key in st.session_state.keys(): st.session_state[key] = None
+    st.rerun()
 
 st.markdown("""
 <style>
-    /* 1. 隐藏 Streamlit 默认的顶部装饰线和菜单栏背景，为全屏横幅让路 */
-    [data-testid="stHeader"] {
-        background-color: transparent !important;
-    }
-    
-    /* 2. 页面全局高级渐变背景 (柔和的灰蓝色调，护眼且具科技感) */
-    .stApp {
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    }
-
-    /* 3. 极致压缩顶部空间，让内容真正顶到头上 */
-    [data-testid="block-container"] {
-        padding-top: 0rem !important;
-        padding-left: 2rem !important;
-        padding-right: 2rem !important;
-        max-width: 98% !important;
-    }
-
-    /* 4. 全新设计的沉浸式顶部 Banner (横幅) */
-    .custom-header {
-        background: linear-gradient(90deg, #1e3c72 0%, #2a5298 100%);
-        color: white;
-        padding: 1.5rem;
-        border-radius: 0 0 15px 15px; /* 下方圆角 */
-        text-align: center;
-        box-shadow: 0 6px 20px rgba(30, 60, 114, 0.2);
-        margin-bottom: 25px;
-        margin-top: -15px; /* 强行向上抵消默认留白 */
-        font-size: 28px;
-        font-weight: 900;
-        letter-spacing: 2px;
-    }
-
-    /* 5. 侧边栏高级质感 (加入微透明和阴影) */
-    [data-testid="stSidebar"] {
-        background-color: rgba(255, 255, 255, 0.9) !important;
-        border-right: 1px solid rgba(255,255,255,0.5);
-        box-shadow: 2px 0 15px rgba(0,0,0,0.05);
-    }
-    
-    /* 6. 导航按钮组美化 (纯白质感，悬浮变色) */
-    div.stButton > button {
-        white-space: nowrap !important; 
-        font-size: 13px !important;     
-        padding: 4px 12px !important;    
-        min-height: 32px !important; 
-        height: 32px !important;
-        width: 100% !important;         
-        background-color: rgba(255, 255, 255, 0.95) !important;      
-        color: #334155 !important;
-        border: 1px solid #cbd5e1 !important;
-        border-radius: 20px !important; /* 优雅的胶囊圆角 */
-        box-shadow: 0 2px 4px rgba(0,0,0,0.02) !important;
-        transition: all 0.3s ease !important; /* 平滑动画 */
-    }
-    div.stButton > button:hover {
-        background: linear-gradient(90deg, #2a5298 0%, #1e3c72 100%) !important;
-        color: white !important;
-        border-color: #1e3c72 !important;
-        transform: translateY(-2px); /* 悬浮上浮效果 */
-        box-shadow: 0 6px 12px rgba(42, 82, 152, 0.25) !important;
-    }
-    
-    /* 7. 下载按钮专属尊贵渐变色 (橙金色) */
-    div[data-testid="stDownloadButton"] > button {
-        background: linear-gradient(135deg, #f6d365 0%, #fda085 100%) !important;
-        color: white !important;
-        border: none !important;
-        letter-spacing: 1px;
-        border-radius: 8px !important;
-        box-shadow: 0 4px 15px rgba(253, 160, 133, 0.4) !important;
-        font-size: 14px !important;
-    }
-    div[data-testid="stDownloadButton"] > button:hover {
-        background: linear-gradient(135deg, #fda085 0%, #f6d365 100%) !important;
-        transform: scale(1.02);
-    }
-
-    /* 8. 行标题排版对齐 */
-    .row-title {
-        font-size: 14px;
-        font-weight: bold;
-        color: #1e293b;
-        text-align: right;               
-        padding-top: 6px;
-        padding-right: 12px;
-        white-space: nowrap;
-    }
-    
-    /* 9. 表格卡片化背景 */
-    [data-testid="stDataFrame"] {
-        background: white;
-        padding: 10px;
-        border-radius: 12px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.03);
-        border: 1px solid #f1f5f9;
-    }
-    [data-testid="column"] { padding: 0 5px !important; }
+    #MainMenu {visibility: hidden;} header {visibility: hidden;} footer {visibility: hidden;}
+    .block-container { padding-top: 1rem !important; padding-bottom: 2rem !important; }
+    .stApp { background-color: #f4f7f9; }
+    div[data-testid="stMetric"] { background-color: #ffffff; border-radius: 12px; padding: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.03); border: 1px solid #ebeef5; text-align: center; }
+    div[data-testid="stForm"] { background-color: #ffffff; padding: 30px; border-radius: 15px; box-shadow: 0 8px 20px rgba(0,0,0,0.05); border: none; }
+    div[data-testid="stFormSubmitButton"] > button { background-color: #0068C9; color: white; font-weight: bold; border-radius: 8px; border: none; padding: 10px 0; }
+    .congrats-banner { background: linear-gradient(90deg, #FFFBEB, #FFF7ED); border: 2px solid #FCD34D; color: #92400E; padding: 12px 20px; border-radius: 12px; text-align: center; font-size: 18px; font-weight: bold; margin-bottom: 25px; box-shadow: 0 4px 12px rgba(252, 211, 77, 0.2); line-height: 1.6; }
+    .main-title { text-align: center; color: #1E3A8A; font-size: 28px; font-weight: 800; margin-bottom: 15px; }
+    .ai-box { background: linear-gradient(135deg, #f0f7ff 0%, #e6f3ff 100%); border-left: 5px solid #0068C9; padding: 20px; border-radius: 8px; font-size: 15px; color: #333;}
 </style>
 """, unsafe_allow_html=True)
 
-# 使用定制的 HTML 横幅替代原本的 st.title
-st.markdown('<div class="custom-header">🎓 教师排课智能读取与精准统计系统</div>', unsafe_allow_html=True)
+selected_nav = option_menu(
+    menu_title=None, options=["成绩总览", "历次追踪", "深度诊断", "教师后台"], 
+    icons=["clipboard-data", "graph-up", "bullseye", "person-badge"], menu_icon="cast", default_index=0, orientation="horizontal",
+    styles={ "container": {"padding": "5px", "background-color": "#ffffff", "border-radius": "12px", "box-shadow": "0 4px 15px rgba(0,0,0,0.08)", "margin-bottom": "30px", "position": "sticky", "top": "15px", "z-index": "9999"}, "nav-link-selected": {"background-color": "#0068C9", "color": "white", "font-weight": "bold"} }
+)
 
-if 'all_sheets' not in st.session_state: st.session_state['all_sheets'] = None
-if 'current_sheet' not in st.session_state: st.session_state['current_sheet'] = None
-if 'global_mode' not in st.session_state: st.session_state['global_mode'] = False
-
-# ================= 汇报级 Excel 渲染引擎 =================
-def convert_df_to_excel_pro(df, sheet_name, title):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        export_df = df.reset_index()
-        export_df.to_excel(writer, sheet_name=sheet_name, startrow=2, index=False)
-        worksheet = writer.sheets[sheet_name]
+# ==============================================================================
+# 🚀 页面逻辑：学生端
+# ==============================================================================
+if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
+    
+    if not st.session_state.logged_in_student:
+        st.markdown("<h1 class='main-title'>🏫 英华学校高中部考试学情智能分析系统</h1>", unsafe_allow_html=True)
         
-        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
-        header_fill = PatternFill(start_color="1E3C72", end_color="1E3C72", fill_type="solid") # 换成更高级的深蓝表头
-        header_font = Font(color="FFFFFF", bold=True, size=11)
-        center_align = Alignment(horizontal='center', vertical='center')
-        
-        max_col = len(export_df.columns)
-        max_row = len(export_df) + 3 
-        
-        cell = worksheet.cell(row=1, column=1, value=title)
-        cell.font = Font(size=18, bold=True, color="000000")
-        worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max_col)
-        cell.alignment = center_align
-        worksheet.row_dimensions[1].height = 40 
-        
-        worksheet.row_dimensions[3].height = 25
-        for col_idx in range(1, max_col + 1):
-            c = worksheet.cell(row=3, column=col_idx)
-            c.fill = header_fill
-            c.font = header_font
-            c.alignment = center_align
-            c.border = thin_border
+        # 动态光荣榜生成
+        latest_master = build_master_df(LATEST_EXAM_IDX)
+        if latest_master is not None and not latest_master.empty:
+            top_p = latest_master[latest_master['方向'] == '物理方向'].sort_values('总分', ascending=False).head(5)['姓名'].tolist()
+            top_h = latest_master[latest_master['方向'] == '历史方向'].sort_values('总分', ascending=False).head(5)['姓名'].tolist()
+            str_p = f"🚀 理科前五：{'、'.join(top_p)}" if top_p else ""
+            str_h = f"🌟 文科前五：{'、'.join(top_h)}" if top_h else ""
             
-        for r_idx in range(4, max_row + 1):
-            worksheet.row_dimensions[r_idx].height = 20 
-            for c_idx in range(1, max_col + 1):
-                c = worksheet.cell(row=r_idx, column=c_idx)
-                c.alignment = center_align
-                c.border = thin_border
-                if c_idx == 1: c.font = Font(bold=True)
-                    
-        for i in range(1, max_col + 1):
-            worksheet.column_dimensions[get_column_letter(i)].width = 15 
-
-    return output.getvalue()
-
-# ================= 智能识别与清洗引擎 =================
-def clean_excel_data(df):
-    is_schedule = False
-    for i in range(min(5, len(df))):
-        row_str = " ".join(str(x) for x in df.iloc[i].values)
-        if "星期" in row_str or re.search(r'\d{4}[-/]\d{2}[-/]\d{2}', row_str):
-            is_schedule = True; break
-            
-    if is_schedule:
-        new_cols = []
-        for idx, col in enumerate(df.columns):
-            c = str(col).strip()
-            if pd.isna(col) or c.lower() in ['nan', '', 'unnamed'] or 'unnamed' in c.lower(): c = f"未命名_{idx+1}"
-            base = c
-            counter = 1
-            while c in new_cols: c = f"{base}_{counter}"; counter += 1
-            new_cols.append(c)
-        df.columns = new_cols
-        return df.dropna(how='all', axis=1).dropna(how='all', axis=0)
+            banner_html = f"🎉 <b>【{LATEST_EXAM['name']}】成绩表彰光荣榜</b> 🏆<br>"
+            if str_p: banner_html += f"<span style='font-size: 16px; color: #D97706;'>{str_p}</span>"
+            if str_p and str_h: banner_html += "<br>"
+            if str_h: banner_html += f"<span style='font-size: 16px; color: #D97706;'>{str_h}</span>"
+            st.markdown(f'<div class="congrats-banner">{banner_html}</div>', unsafe_allow_html=True)
+        
+        col_left, col_mid, col_right = st.columns([1, 1.8, 1])
+        with col_left:
+            st.markdown("<br><br>", unsafe_allow_html=True)
+            if os.path.exists("panda.gif"): st.image("panda.gif", use_container_width=True)
+        with col_mid:
+            with st.form("student_login"):
+                st.markdown("<h3 style='text-align: center; color: #555;'>👨‍🎓 学生/家长登录入口</h3><br>", unsafe_allow_html=True)
+                st.info("💡 提示：系统会自动根据您的学科分数识别方向。")
+                name = st.text_input("👤 学生姓名", placeholder="请输入真实姓名")
+                stu_id = st.text_input("🔢 考号/学号", placeholder="请输入准确考号")
+                if st.form_submit_button("🔍 立即查分", use_container_width=True):
+                    if name and stu_id:
+                        if latest_master is not None:
+                            match = latest_master[(latest_master['姓名'] == name.strip()) & (latest_master['考号'] == stu_id.strip())]
+                            if not match.empty:
+                                st.session_state.logged_in_student = name.strip()
+                                st.session_state.logged_in_id = stu_id.strip()
+                                st.session_state.logged_in_direction = match.iloc[0]['方向']
+                                st.rerun()
+                            else: st.error("❌ 未查询到成绩，请确认姓名和考号是否正确。")
+                        else: st.warning("系统暂未配置考试数据。")
+                    else: st.error("⚠️ 请完整填写信息")
+        with col_right:
+            st.markdown("<br><br>", unsafe_allow_html=True)
+            if os.path.exists("star.gif"): st.image("star.gif", use_container_width=True)
+    
     else:
-        header_idx = -1
-        for i in range(min(10, len(df))):
-            if any(k in str(df.iloc[i].values) for k in ["姓名", "科目", "类别", "课数"]):
-                header_idx = i; break
-        if header_idx != -1:
-            raw_cols = df.iloc[header_idx].tolist()
-            df = df.iloc[header_idx + 1:].reset_index(drop=True)
-        else:
-            raw_cols = df.columns.tolist() 
-            new_cols = []
-            for idx, col in enumerate(raw_cols):
-                c = str(col).strip()
-                if pd.isna(col) or c.lower() in ['nan', '', 'unnamed'] or 'unnamed' in c.lower(): c = f"未命名_{idx+1}"
-                base = c
-                counter = 1
-                while c in new_cols: c = f"{base}_{counter}"; counter += 1
-                new_cols.append(c)
-            df.columns = new_cols
-        return df.dropna(how='all', axis=1).dropna(how='all', axis=0)
+        c1, c2 = st.columns([4, 1])
+        c1.markdown(f"**当前用户：** {st.session_state.logged_in_student} | **系统自动判定方向：** {st.session_state.logged_in_direction}")
+        if c2.button("🚪 退出登录", use_container_width=True): logout()
+        st.divider()
 
-# ================= 核心统计算法库 =================
-def parse_class_string(val_str):
-    val_str = str(val_str).replace(" ", "") 
-    ignore = ['0', '0.0', 'nan', 'none', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日', '体育', '班会', '国学', '美术', '音乐', '大扫除']
-    if not val_str or val_str.lower() in ignore or re.search(r'\d{4}[-/]\d{1,2}[-/]\d{1,2}', val_str) or re.search(r'^第[一二三四五六七八九十]+周', val_str):
-        return None
+        # 获取最新大表
+        master_df = build_master_df(LATEST_EXAM_IDX)
+        stu_data = master_df[(master_df['姓名'] == st.session_state.logged_in_student) & (master_df['考号'] == st.session_state.logged_in_id)].iloc[0]
         
-    count = 1.0
-    m_num = re.search(r'(\d+(?:\.\d+)?)$', val_str)
-    if m_num:
-        if m_num.start() == 0: return None
-        count = float(m_num.group(1))
-        val_str = val_str[:m_num.start()] 
-        
-    match = re.match(r'^([\u4e00-\u9fa5a-zA-Z]+?)(高[一二三]|初[一二三]|小[一二三四五六])(.*)$', val_str)
-    if match: return {'教师姓名': match.group(1), '课程类别': match.group(2) + match.group(3), '课时数': count}
-        
-    known_types = ['早自', '正大', '正小', '晚自', '自大', '自小', '辅导', '正课', '早读', '晚修']
-    for kt in known_types:
-        if val_str.endswith(kt): return {'教师姓名': val_str[:-len(kt)], '课程类别': kt, '课时数': count}
+        # --- 模块 1: 成绩总览 ---
+        if selected_nav == "成绩总览":
+            st.markdown(f"### 🏆 【{LATEST_EXAM['name']}】成绩概览")
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("姓名", stu_data['姓名'])
+            k2.metric("班级", stu_data['班级'])
+            k3.metric("总分", f"{stu_data['总分']}")
+            k4.metric("班级内排名", stu_data['班级排名'])
             
-    if len(val_str) >= 2: return {'教师姓名': val_str, '课程类别': '常规课', '课时数': count}
-    return None
-
-# ================= 侧边栏与全局汇总配置 =================
-st.sidebar.markdown('<div style="text-align:center; padding-bottom:10px;"><h2 style="color:#1e3c72; font-weight:bold;">📁 数据控制台</h2></div>', unsafe_allow_html=True)
-uploaded_file = st.sidebar.file_uploader("请拖拽或点击上传 Excel (.xlsm/xlsx)", type=["xlsm", "xlsx"])
-
-if uploaded_file is not None and st.session_state['all_sheets'] is None:
-    try:
-        with st.spinner('正在执行双引擎解析，请稍候...'):
-            raw_sheets = pd.read_excel(uploaded_file, sheet_name=None, engine='openpyxl')
-            clean_sheets = {}
-            for sheet_name, df in raw_sheets.items(): clean_sheets[sheet_name] = clean_excel_data(df)
-            st.session_state['all_sheets'] = clean_sheets
-            st.session_state['current_sheet'] = list(clean_sheets.keys())[0]
-            st.sidebar.success("✅ 文件解析成功！")
-    except Exception as e:
-        st.error(f"严重错误: {e}")
-
-if st.session_state['all_sheets'] is not None:
-    st.sidebar.markdown("---")
-    st.sidebar.markdown('<h4 style="color:#2a5298;">🌐 全局统计生成器</h4>', unsafe_allow_html=True)
-    
-    valid_classes = [s for s in st.session_state['all_sheets'].keys() if not any(kw in s for kw in ['总表', '分表', '汇总'])]
-    scope = st.sidebar.radio("📌 统计范围选择", ["所有班级 (全校)", "按年级多选", "自定义勾选班级"])
-    
-    target_classes = []
-    if scope == "所有班级 (全校)":
-        target_classes = valid_classes
-    elif scope == "按年级多选":
-        grades = st.sidebar.multiselect("挑选年级", ["高一", "高二", "高三", "一对一"], default=["高三"])
-        target_classes = [c for c in valid_classes if any(g in c for g in grades)]
-    else:
-        target_classes = st.sidebar.multiselect("勾选具体的班级", valid_classes, default=valid_classes[:2])
-
-    st.sidebar.markdown("<br><b>📍 数据截取设置</b>", unsafe_allow_html=True)
-    col_g1, col_g2 = st.sidebar.columns(2)
-    with col_g1: g_start_idx = st.number_input("起始列数", min_value=1, value=15)
-    with col_g2: g_end_idx = st.number_input("结束列数", min_value=1, value=21)
-    
-    g_dates = st.sidebar.date_input("🗓️ 限定统计时间段", [])
-    
-    if st.sidebar.button("🚀 一键生成全局报表", use_container_width=True, type="primary"):
-        if len(g_dates) < 1:
-            st.sidebar.error("请先选择完整的时间段！")
-        elif not target_classes:
-            st.sidebar.error("当前没有选定任何班级！")
-        else:
-            st.session_state['global_mode'] = True
-            st.session_state['g_start'] = g_start_idx
-            st.session_state['g_end'] = g_end_idx
-            st.session_state['g_dates'] = g_dates
-            st.session_state['g_targets'] = target_classes
-            st.session_state['g_scope'] = scope
-
-# ================= 动态顶部导航 =================
-if st.session_state['all_sheets'] is not None:
-    all_sheet_names = list(st.session_state['all_sheets'].keys())
-    directory_data = {
-        "总表 & 汇总": [], "高一年级": [], "高二年级": [], 
-        "高三年级": [], "一对一": [], "其他表单": []
-    }
-    for name in all_sheet_names:
-        if "总" in name or "分表" in name or "汇总" in name: directory_data["总表 & 汇总"].append(name)
-        elif "高一" in name: directory_data["高一年级"].append(name)
-        elif "高二" in name: directory_data["高二年级"].append(name)
-        elif "高三" in name: directory_data["高三年级"].append(name)
-        elif "一对一" in name: directory_data["一对一"].append(name)
-        else: directory_data["其他表单"].append(name)
-
-    for category, buttons in directory_data.items():
-        if not buttons: continue 
-        empty_space = 10 - len(buttons) if len(buttons) < 10 else 1
-        cols = st.columns([1.2] + [1] * len(buttons) + [empty_space]) 
-        with cols[0]:
-            st.markdown(f'<div class="row-title">{category} :</div>', unsafe_allow_html=True)
-        for i, btn_name in enumerate(buttons):
-            with cols[i+1]:
-                if st.button(btn_name, key=f"nav_{btn_name}"):
-                    st.session_state['current_sheet'] = btn_name
-                    st.session_state['global_mode'] = False 
-    st.markdown("<hr style='margin: 15px 0px; border: none; border-top: 1px solid #cbd5e1;'>", unsafe_allow_html=True)
-
-    # ================= 分支判断：全局表 or 单班级表 =================
-    if st.session_state['global_mode']:
-        g_dates = st.session_state['g_dates']
-        f_start = g_dates[0]
-        f_end = g_dates[1] if len(g_dates) == 2 else g_dates[0]
-        targets = st.session_state['g_targets']
-        
-        report_title_prefix = "全校" if st.session_state['g_scope'] == "所有班级 (全校)" else "选中班级"
-        
-        st.markdown(f"<h3 style='color:#1e3c72;'>🌐 【{report_title_prefix}】课时总汇 📅 ({f_start} 至 {f_end})</h3>", unsafe_allow_html=True)
-        st.info(f"系统正在扫描以下 {len(targets)} 个班级：{', '.join(targets[:5])}{' ...' if len(targets)>5 else ''}")
-        
-        all_records = []
-        for s_name in targets:
-            if s_name not in st.session_state['all_sheets']: continue
-            s_df = st.session_state['all_sheets'][s_name]
+            st.markdown("<br>### 📊 各科得分对比", unsafe_allow_html=True)
+            subs = ['语文','数学','英语','物理','化学','生物','历史','政治','地理']
+            valid_subs = [s for s in subs if s in stu_data and stu_data[s] > 0]
             
-            start_i = max(0, st.session_state['g_start'] - 1)
-            end_i = min(len(s_df.columns), st.session_state['g_end'])
-            if start_i >= end_i: continue
-                
-            locked_cols = s_df.columns[start_i:end_i]
-            for col in locked_cols:
-                current_date = None
-                for val in s_df[col]:
-                    val_str = str(val).strip()
-                    m = re.search(r'(\d{4}[-/]\d{1,2}[-/]\d{1,2})', val_str)
-                    if m:
-                        try: current_date = pd.to_datetime(m.group(1)).date()
-                        except: pass
-                        continue
-                    
-                    if current_date and (f_start <= current_date <= f_end):
-                        parsed = parse_class_string(val_str)
-                        if parsed:
-                            parsed['来源班级'] = s_name
-                            parsed['来源日期'] = str(current_date)
-                            all_records.append(parsed)
+            if valid_subs:
+                chart_data = pd.DataFrame({"科目": valid_subs, "得分": [stu_data[s] for s in valid_subs]})
+                col_bar, col_radar = st.columns(2)
+                with col_bar:
+                    fig1 = px.bar(chart_data, x='科目', y='得分', text_auto=True, color='科目')
+                    fig1.update_layout(showlegend=False, margin=dict(t=40, b=20, l=20, r=20), paper_bgcolor='rgba(0,0,0,0)')
+                    st.plotly_chart(fig1, use_container_width=True)
+                with col_radar:
+                    fig2 = px.line_polar(chart_data, r='得分', theta='科目', line_close=True)
+                    fig2.update_traces(fill='toself', line_color='#0068C9')
+                    fig2.update_layout(margin=dict(t=40, b=20, l=40, r=40), paper_bgcolor='rgba(0,0,0,0)')
+                    st.plotly_chart(fig2, use_container_width=True)
+            
+        # --- 模块 2: 历次追踪 ---
+        elif selected_nav == "历次追踪":
+            st.markdown(f"### 📈 历次考试波动轨迹")
+            history_records = []
+            with st.spinner("正在云端汇聚历次成绩轨迹..."):
+                for i, exam in enumerate(EXAMS):
+                    m_df = build_master_df(i)
+                    if m_df is not None and not m_df.empty:
+                        stu_h = m_df[(m_df['姓名'] == st.session_state.logged_in_student) & (m_df['考号'] == st.session_state.logged_in_id)]
+                        if not stu_h.empty:
+                            history_records.append({ "考试名称": exam['name'], "总分": float(stu_h.iloc[0]['总分']), "班级排名": int(stu_h.iloc[0]['班级排名']) })
+            
+            if history_records:
+                df_trend = pd.DataFrame(history_records)
+                col_t1, col_t2 = st.columns(2)
+                with col_t1:
+                    fig_score = px.line(df_trend, x="考试名称", y="总分", markers=True, title="总分走势图", line_shape="spline")
+                    fig_score.update_traces(line_color="#FF4B4B", marker=dict(size=10))
+                    st.plotly_chart(fig_score, use_container_width=True)
+                with col_t2:
+                    fig_rank = px.line(df_trend, x="考试名称", y="班级排名", markers=True, title="班级排名走势 (曲线向下代表进步)", line_shape="spline")
+                    fig_rank.update_traces(line_color="#0068C9", marker=dict(size=10))
+                    fig_rank.update_yaxes(autorange="reversed")
+                    st.plotly_chart(fig_rank, use_container_width=True)
+            else: st.info("暂未抓取到您的历史轨迹。")
+
+        # --- 模块 3: 深度诊断 ---
+        elif selected_nav == "深度诊断":
+            avail_subs = [s for s in ['语文','数学','英语','物理','化学','生物','历史','政治','地理'] if s in stu_data and stu_data[s] > 0 and LATEST_EXAM.get(s)]
+            if not avail_subs: st.info("暂未配置您所考科目的详细题库数据。")
+            else:
+                sel_sub = st.selectbox("👇 选择诊断科目", avail_subs)
+                df_diag = load_data(LATEST_EXAM[sel_sub], header_lines=[0, 1, 2])
+                if df_diag is not None:
+                    name_idx, id_idx = -1, -1
+                    for i, col in enumerate(df_diag.columns):
+                        if '姓名' in str(col[0]): name_idx = i
+                        if '考号' in str(col[0]) or '学号' in str(col[0]): id_idx = i
+                    if name_idx != -1 and id_idx != -1:
+                        all_names = df_diag.iloc[:, name_idx].astype(str).str.strip().values
+                        all_ids = df_diag.iloc[:, id_idx].astype(str).str.strip().values
+                        found_idx = -1
+                        for idx, (n, i) in enumerate(zip(all_names, all_ids)):
+                            if n == st.session_state.logged_in_student and i == st.session_state.logged_in_id: found_idx = idx; break
+                        if found_idx != -1:
+                            knowledge_map = {} 
+                            for col in df_diag.columns:
+                                q_name, k_point = str(col[0]).strip(), str(col[1]).strip()
+                                try: full = float(col[2])
+                                except: full = 0
+                                if '姓名' in q_name or '考号' in q_name or full <= 0: continue
+                                if k_point not in knowledge_map: knowledge_map[k_point] = {'my': 0, 'full': 0, 'class_total': 0}
+                                try: my_s = float(df_diag.iloc[found_idx][col])
+                                except: my_s = 0
+                                class_s = pd.to_numeric(df_diag[col], errors='coerce').mean()
+                                knowledge_map[k_point]['my'] += my_s
+                                knowledge_map[k_point]['full'] += full
+                                knowledge_map[k_point]['class_total'] += class_s
                             
-        if all_records:
-            stat_df = pd.DataFrame(all_records)
-            pivot_df = pd.pivot_table(stat_df, values='课时数', index='教师姓名', columns='课程类别', aggfunc='sum', fill_value=0)
-            pivot_df['总计'] = pivot_df.sum(axis=1)
+                            k_data, weak_points_list, strong_points_list = [], [], []
+                            for kp, val in knowledge_map.items():
+                                my_rate = round((val['my']/val['full'])*100, 1) if val['full']>0 else 0
+                                avg_rate = round((val['class_total']/val['full'])*100, 1) if val['full']>0 else 0
+                                k_data.append({'知识点': kp, '我的掌握率': my_rate, '班级平均': avg_rate})
+                                if my_rate < avg_rate: weak_points_list.append(kp)
+                                else: strong_points_list.append(kp)
+                            
+                            df_kp = pd.DataFrame(k_data)
+                            if not df_kp.empty:
+                                c_chart, c_text = st.columns([1.2, 1])
+                                with c_chart:
+                                    fig = go.Figure()
+                                    cats = df_kp['知识点'].tolist() + [df_kp['知识点'].tolist()[0]]
+                                    mys = df_kp['我的掌握率'].tolist() + [df_kp['我的掌握率'].tolist()[0]]
+                                    avgs = df_kp['班级平均'].tolist() + [df_kp['班级平均'].tolist()[0]]
+                                    fig.add_trace(go.Scatterpolar(r=avgs, theta=cats, fill='toself', name='班级平均', line_color='#cccccc'))
+                                    fig.add_trace(go.Scatterpolar(r=mys, theta=cats, fill='toself', name='我的掌握', line_color='#FF4B4B'))
+                                    fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), paper_bgcolor='rgba(0,0,0,0)')
+                                    st.plotly_chart(fig, use_container_width=True)
+                                with c_text:
+                                    st.markdown("#### 🩺 专家系统诊断")
+                                    if weak_points_list:
+                                        for row in k_data:
+                                            if row['知识点'] in weak_points_list:
+                                                st.write(f"▪ **{row['知识点']}** (落后 {row['班级平均'] - row['我的掌握率']:.1f}%)")
+                                    else: st.success("🎉 所有知识点均达标！")
+                                
+                                st.divider()
+                                if AI_API_KEY and st.button(f"✨ 提取专家 AI 提分建议", type="primary"):
+                                    with st.spinner("AI 导师正在云端调取档案..."):
+                                        w_str = "、".join(weak_points_list) if weak_points_list else "无"
+                                        s_str = "、".join(strong_points_list) if strong_points_list else "无"
+                                        ai_reply = get_ai_advice_for_student(st.session_state.logged_in_student, sel_sub, w_str, s_str)
+                                        st.markdown(f"<div class='ai-box'><b>AI导师：</b><br><br>{ai_reply}</div>", unsafe_allow_html=True)
+
+# ==============================================================================
+# 🚀 页面逻辑：教师后台 
+# ==============================================================================
+elif selected_nav == "教师后台":
+    
+    if not st.session_state.teacher_role:
+        st.markdown("<h1 class='main-title'>🏫 教务与教师管理中枢</h1>", unsafe_allow_html=True)
+        col_left, col_mid, col_right = st.columns([1, 1.8, 1])
+        with col_left:
+            st.markdown("<br><br>", unsafe_allow_html=True)
+            if os.path.exists("panda.gif"): st.image("panda.gif", use_container_width=True)
             
-            st.success(f"🎉 统计完毕！共 {len(stat_df['教师姓名'].unique())} 位老师上了课，总计 {stat_df['课时数'].sum()} 节。")
-            st.dataframe(pivot_df, use_container_width=True)
-            
-            formal_title = f"【{report_title_prefix}汇总】课时报表 ({f_start}至{f_end})"
-            excel_data = convert_df_to_excel_pro(pivot_df, sheet_name="数据汇总", title=formal_title)
-            st.download_button(
-                label=f"⬇️ 导出《{report_title_prefix}汇报表格》为 Excel",
-                data=excel_data, file_name=f"{report_title_prefix}课时报表_{f_start}至{f_end}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-            with st.expander("🔍 查看抓取底层明细 (用于排错)"): st.dataframe(stat_df)
-        else:
-            st.warning("⚠️ 在指定的范围中，未抓取到有效课时！")
+        with col_mid:
+            with st.container(border=True):
+                st.markdown("<h3 style='text-align: center; color: #555;'>👨‍🏫 教职工专属通道</h3><br>", unsafe_allow_html=True)
+                
+                t_name = st.text_input("👤 您的姓名 (需与学校花名册一致)")
+                pwd = st.text_input("🔐 专属密码", type="password")
+                
+                if st.button("验证并进入控制台", use_container_width=True, type="primary"):
+                    roster_df = load_data(URL_TEACHER_ROSTER)
+                    if roster_df is not None and '教师姓名' in roster_df.columns:
+                        t_info = roster_df[roster_df['教师姓名'].astype(str).str.strip() == t_name.strip()]
+                        if not t_info.empty:
+                            info = t_info.iloc[0]
+                            actual_role = str(info.get('角色', '')).strip()
+                            
+                            is_auth = False
+                            if actual_role == "教务处" and pwd == ADMIN_PASSWORD: is_auth = True
+                            elif actual_role == "班主任" and (pwd == HOMEROOM_PASSWORD or pwd == ADMIN_PASSWORD): is_auth = True
+                            elif actual_role == "任课教师" and (pwd == TEACHER_PASSWORD or pwd == ADMIN_PASSWORD): is_auth = True
+                            
+                            if is_auth:
+                                st.session_state.teacher_role = actual_role
+                                st.session_state.teacher_name = t_name.strip()
+                                st.session_state.teacher_subject = str(info.get('学科', '')).strip()
+                                classes_str = str(info.get('管理班级', ''))
+                                st.session_state.teacher_classes = [c.strip() for c in classes_str.split(',') if c.strip()]
+                                st.rerun()
+                            else: st.error("❌ 密码错误，请核对您所在级别的专属密码。")
+                        else: st.error(f"❌ 权限表中未找到【{t_name}】的授权信息。")
+                    else: st.error("⚠️ 无法读取教师权限表，请检查 URL_TEACHER_ROSTER。")
+                    
+        with col_right:
+            st.markdown("<br><br>", unsafe_allow_html=True)
+            if os.path.exists("star.gif"): st.image("star.gif", use_container_width=True)
             
     else:
-        current = st.session_state['current_sheet']
-        st.markdown(f"<h4 style='color:#1e3c72;'>👁️ 当前查看 : 【 {current} 】</h4>", unsafe_allow_html=True)
+        role = st.session_state.teacher_role
+        name = st.session_state.teacher_name
+        subject = st.session_state.teacher_subject
+        my_classes = st.session_state.teacher_classes
         
-        df_current = st.session_state['all_sheets'][current].copy()
-        display_df = df_current.astype(str).replace({' 00:00:00': ''}, regex=True).replace({'nan': '', 'None': ''})
-        st.dataframe(display_df, use_container_width=True, height=350)
-
-        st.markdown("---")
-        tab1, tab2 = st.tabs(["📏 【周课表专用】垂直穿插统计", "📊 【常规明细表】手动选列统计"])
+        c1, c2 = st.columns([5, 1])
+        c1.markdown(f"### 👨‍🏫 欢迎，{name}老师！【权限级别：{role}】")
+        if c2.button("🚪 安全退出", use_container_width=True): logout()
         
-        with tab1:
-            all_cols = display_df.columns.tolist()
-            col_a, col_b = st.columns(2)
-            with col_a: start_choice = st.selectbox("🚩 起始列", options=all_cols, index=14 if len(all_cols)>14 else 0)
-            with col_b: end_choice = st.selectbox("🏁 结束列", options=all_cols, index=20 if len(all_cols)>20 else len(all_cols)-1)
+        master_df = build_master_df(LATEST_EXAM_IDX)
+        if master_df is not None:
+            adm_direction = st.selectbox("👉 选择分析群体", ["物理方向", "历史方向", "综合方向"])
+            df_filtered = master_df[master_df['方向'] == adm_direction]
+            
+            # ========== 🚀 RBAC 权限拦截 ==========
+            if role == "教务处":
+                st.success("👑 全局最高权限，可查看所有班级数据。")
+            elif role == "班主任":
+                df_filtered = df_filtered[df_filtered['班级'].isin(my_classes)]
+                st.success(f"🛡️ 班级保护生效：仅查看【{'、'.join(my_classes)}】全科成绩。")
+            elif role == "任课教师":
+                df_filtered = df_filtered[df_filtered['班级'].isin(my_classes)]
+                st.success(f"🛡️ 单科保护生效：仅查看【{'、'.join(my_classes)}】的【{subject}】成绩。")
+            
+            if not df_filtered.empty:
+                st.divider()
+                st.markdown(f"#### 📊 【{LATEST_EXAM['name']}】学情分析")
                 
-            start_idx, end_idx = all_cols.index(start_choice), all_cols.index(end_choice)
-            if start_idx <= end_idx:
-                locked_cols = all_cols[start_idx : end_idx + 1]
-                all_dates_in_range = set()
-                for col in locked_cols:
-                    for val in display_df[col]:
-                        m = re.search(r'(\d{4}[-/]\d{1,2}[-/]\d{1,2})', str(val).strip())
-                        if m:
-                            try: all_dates_in_range.add(pd.to_datetime(m.group(1)).date())
-                            except: pass
-                
-                if all_dates_in_range:
-                    min_d, max_d = min(all_dates_in_range), max(all_dates_in_range)
-                    date_range = st.date_input(f"🗓️ 选择提取区间：", [min_d, max_d])
-                    
-                    if len(date_range) >= 1:
-                        f_start = date_range[0]
-                        f_end = date_range[1] if len(date_range) == 2 else date_range[0]
+                if role == "任课教师":
+                    if subject in df_filtered.columns:
+                        class_avg = df_filtered.groupby('班级')[subject].mean().round(1).reset_index()
+                        st.plotly_chart(px.bar(class_avg, x='班级', y=subject, text_auto=True, title=f"所带班级【{subject}】均分对比"), use_container_width=True)
+                        st.dataframe(df_filtered[['姓名', '班级', subject]].sort_values(by=subject, ascending=False), use_container_width=True)
                         
-                        if st.button("🚀 开始本班扫描提取", type="primary"):
-                            records = []
-                            for col in locked_cols:
-                                current_date = None
-                                for val in display_df[col]:
-                                    val_str = str(val).strip()
-                                    m = re.search(r'(\d{4}[-/]\d{1,2}[-/]\d{1,2})', val_str)
-                                    if m:
-                                        try: current_date = pd.to_datetime(m.group(1)).date()
-                                        except: pass
-                                        continue
-                                    
-                                    if current_date and (f_start <= current_date <= f_end):
-                                        parsed = parse_class_string(val_str)
-                                        if parsed: records.append(parsed)
-                                            
-                            if records:
-                                stat_df = pd.DataFrame(records)
-                                pivot_df = pd.pivot_table(stat_df, values='课时数', index='教师姓名', columns='课程类别', aggfunc='sum', fill_value=0)
-                                pivot_df['总计'] = pivot_df.sum(axis=1)
-                                
-                                st.success(f"🎉 统计完毕！【{current}】共计 {stat_df['课时数'].sum()} 节课时。")
-                                st.dataframe(pivot_df, use_container_width=True)
-                                
-                                formal_title = f"【{current}】课时统计报表 ({f_start}至{f_end})"
-                                excel_data = convert_df_to_excel_pro(pivot_df, sheet_name=current, title=formal_title)
-                                st.download_button(
-                                    label=f"⬇️ 导出带商务排版的《{current}报表》",
-                                    data=excel_data, file_name=f"{current}_课时报表_{f_start}至{f_end}.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                                )
-                                with st.expander("🔍 提取明细"): st.dataframe(stat_df)
-                            else:
-                                st.warning("未找到可识别的课时。")
+                        # AI教研
+                        if LATEST_EXAM.get(subject):
+                            st.divider()
+                            st.markdown(f"#### 🧠 【{subject}】底层共性诊断与 AI 教研")
+                            df_diag = load_data(LATEST_EXAM[subject], header_lines=[0, 1, 2])
+                            if df_diag is not None:
+                                k_stats = {}
+                                for col in df_diag.columns:
+                                    try: full = float(col[2])
+                                    except: full = 0
+                                    if full > 0 and '姓名' not in str(col[0]):
+                                        kp = str(col[1]).strip()
+                                        if kp not in k_stats: k_stats[kp] = []
+                                        k_stats[kp].append(pd.to_numeric(df_diag[col], errors='coerce').mean() / full)
+                                if k_stats:
+                                    k_final = [{"知识点": kp, "掌握率": round(sum(rates)/len(rates)*100, 1)} for kp, rates in k_stats.items()]
+                                    df_k = pd.DataFrame(k_final).sort_values("掌握率")
+                                    st.plotly_chart(px.bar(df_k, x="掌握率", y="知识点", orientation='h'), use_container_width=True)
+                                    if AI_API_KEY and st.button("✨ 提取专家 AI 教研建议", type="primary"):
+                                        with st.spinner("AI 正在云端调取报告..."):
+                                            st.markdown(f"<div class='ai-box'>{get_ai_advice_for_teacher(subject, '、'.join(df_k.head(3)['知识点'].tolist()))}</div>", unsafe_allow_html=True)
+                    else: st.warning(f"当前群体的考试中未找到您的学科【{subject}】。")
                 else:
-                    st.warning("⚠️ 没有扫描到包含日期的行！")
-
-        with tab2:
-            available_cols = list(display_df.columns)
-            def guess_index(kw):
-                for i, c in enumerate(available_cols):
-                    if any(k in str(c) for k in kw): return i
-                return 0
-                
-            col1, col2, col3 = st.columns(3)
-            with col1: name_col = st.selectbox("👤 【姓名】列", available_cols, index=guess_index(['姓名','教师']))
-            with col2: type_col = st.selectbox("🏷️ 【类别】列", available_cols, index=guess_index(['子类','类别']))
-            with col3: count_col = st.selectbox("🔢 【数量】列", available_cols, index=guess_index(['课数','课时']))
-                
-            if st.button("📊 生成常规统计"):
-                try:
-                    stat_df = df_current.copy()
-                    stat_df[count_col] = pd.to_numeric(stat_df[count_col], errors='coerce').fillna(0)
-                    stat_df = stat_df[stat_df[name_col].notna()]
-                    stat_df = stat_df[stat_df[name_col].astype(str).str.strip() != '']
-                    pivot_df = pd.pivot_table(stat_df, values=count_col, index=name_col, columns=type_col, aggfunc='sum', fill_value=0)
-                    pivot_df['总计'] = pivot_df.sum(axis=1)
-                    st.dataframe(pivot_df, use_container_width=True)
-                    
-                    formal_title = f"【{current}】常规课时统计"
-                    excel_data = convert_df_to_excel_pro(pivot_df, sheet_name=current, title=formal_title)
-                    st.download_button(
-                        label="⬇️ 导出带高级排版的报表", data=excel_data, file_name=f"{current}_常规课时.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                    )
-                except:
-                    st.warning("无法生成，请确认选对了列名！")
-else:
-    st.info("👆 请先在左侧上传您的 Excel 文件！")
+                    class_avg = df_filtered.groupby('班级')['总分'].mean().round(1).reset_index()
+                    st.plotly_chart(px.bar(class_avg, x='班级', y='总分', text_auto=True, title="总分均分对照"), use_container_width=True)
+                    st.dataframe(df_filtered, use_container_width=True)
+            else: st.warning("⚠️ 在当前选择的群体中，未找到您的授权班级数据。")
