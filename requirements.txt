@@ -1,4 +1,6 @@
-streamlit
+streamlit>=1.30.0
 pandas
-openpyxl
 plotly
+streamlit-option-menu
+openai
+altair<5.0.0
