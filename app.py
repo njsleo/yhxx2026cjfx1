@@ -6,6 +6,7 @@ from streamlit_option_menu import option_menu
 import openai
 import os
 import functools
+import io
 
 # ==============================================================================
 # 1. 页面基础配置 
@@ -95,7 +96,6 @@ def build_master_df(exam_idx):
                             if c in [name_c, id_c, cls_c]: continue
                             cstr = str(c[0]) if isinstance(c, tuple) else str(c)
                             if '总分' in cstr or '排名' in cstr: continue
-                            
                             try: 
                                 val = float(row[c])
                                 if pd.notna(val): tot += val
@@ -105,13 +105,11 @@ def build_master_df(exam_idx):
                         s_id = clean_str(row[id_c])
                         s_cls = clean_str(row[cls_c]) if cls_c else "未分班"
                         
-                        if s_id: 
-                            res.append({'姓名': s_name, '考号': s_id, '班级': s_cls, sub: round(tot, 1)})
+                        if s_id: res.append({'姓名': s_name, '考号': s_id, '班级': s_cls, sub: round(tot, 1)})
                     if res: dfs.append(pd.DataFrame(res))
     
     if not dfs: return None
     master = functools.reduce(lambda l, r: pd.merge(l, r, on=['姓名','考号','班级'], how='outer'), dfs)
-    
     present_subs = [s for s in subs if s in master.columns]
     master[present_subs] = master[present_subs].fillna(0)
     master['总分'] = master[present_subs].sum(axis=1).round(1)
@@ -134,7 +132,7 @@ def get_ai_advice_for_student(student_name, subject, weak_points, strong_points)
     try:
         res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是专业AI导师。"}, {"role": "user", "content": prompt}])
         return res.choices[0].message.content
-    except Exception as e: return f"AI 生成失败: {e}"
+    except: return "AI 生成失败"
 
 @st.cache_data(ttl=2592000, show_spinner=False)
 def get_ai_advice_for_teacher(subject, weak_points_list):
@@ -143,7 +141,7 @@ def get_ai_advice_for_teacher(subject, weak_points_list):
     try:
         res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是教研专家AI。"}, {"role": "user", "content": prompt}])
         return res.choices[0].message.content
-    except Exception as e: return f"AI 生成失败: {e}"
+    except: return "AI 生成失败"
 
 # ==============================================================================
 # --- 状态与 CSS 样式 ---
@@ -175,7 +173,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 统一的图表锁定配置 (禁止工具栏、禁止滚轮缩放)
 CHART_CONFIG = {'displayModeBar': False, 'scrollZoom': False}
 
 selected_nav = option_menu(
@@ -262,13 +259,11 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                 col_bar, col_radar = st.columns(2)
                 with col_bar:
                     fig1 = px.bar(chart_data, x='科目', y='得分', text_auto=True, color='科目')
-                    # 🔴 锁定柱状图
                     fig1.update_layout(showlegend=False, margin=dict(t=40, b=20, l=20, r=20), paper_bgcolor='rgba(0,0,0,0)', dragmode=False)
                     st.plotly_chart(fig1, use_container_width=True, config=CHART_CONFIG)
                 with col_radar:
                     fig2 = px.line_polar(chart_data, r='得分', theta='科目', line_close=True)
                     fig2.update_traces(fill='toself', line_color='#0068C9')
-                    # 🔴 锁定雷达图 (固定视角，禁止拖拽)
                     fig2.update_layout(margin=dict(t=40, b=20, l=40, r=40), paper_bgcolor='rgba(0,0,0,0)', dragmode=False)
                     st.plotly_chart(fig2, use_container_width=True, config=CHART_CONFIG)
             
@@ -290,13 +285,13 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                 with col_t1:
                     fig_score = px.line(df_trend, x="考试名称", y="总分", markers=True, title="总分走势图", line_shape="spline")
                     fig_score.update_traces(line_color="#FF4B4B", marker=dict(size=10))
-                    fig_score.update_layout(dragmode=False) # 🔴 锁定折线图
+                    fig_score.update_layout(dragmode=False)
                     st.plotly_chart(fig_score, use_container_width=True, config=CHART_CONFIG)
                 with col_t2:
                     fig_rank = px.line(df_trend, x="考试名称", y="班级排名", markers=True, title="班级排名走势 (曲线向下代表进步)", line_shape="spline")
                     fig_rank.update_traces(line_color="#0068C9", marker=dict(size=10))
                     fig_rank.update_yaxes(autorange="reversed")
-                    fig_rank.update_layout(dragmode=False) # 🔴 锁定折线图
+                    fig_rank.update_layout(dragmode=False)
                     st.plotly_chart(fig_rank, use_container_width=True, config=CHART_CONFIG)
             else: st.info("暂未抓取到您的历史轨迹。")
 
@@ -368,8 +363,8 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                                     avgs = df_kp['班级平均'].tolist() + [df_kp['班级平均'].tolist()[0]]
                                     fig.add_trace(go.Scatterpolar(r=avgs, theta=cats, fill='toself', name='班级平均', line_color='#cccccc'))
                                     fig.add_trace(go.Scatterpolar(r=mys, theta=cats, fill='toself', name='我的掌握', line_color='#FF4B4B'))
-                                    # 🔴 锁定诊断雷达图，强制固定比例
-                                    fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100], fixedrange=True)), paper_bgcolor='rgba(0,0,0,0)', dragmode=False)
+                                    # 🔴 关键修复点：移除了导致报错的 fixedrange=True
+                                    fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), paper_bgcolor='rgba(0,0,0,0)', dragmode=False)
                                     st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
                                 with c_text:
                                     st.markdown("#### 🩺 专家系统诊断")
@@ -481,21 +476,35 @@ elif selected_nav == "教师后台":
 
                 st.markdown(f"#### 📊 【{LATEST_EXAM['name']}】学情分析图表")
                 
+                def style_dataframe(df):
+                    return df.style.format(precision=1)\
+                        .set_properties(**{'font-size': '16px', 'padding': '14px 10px', 'text-align': 'center'})\
+                        .apply(lambda col: ['background-color: #F4F8FB' if i % 2 == 0 else 'background-color: #FFFFFF' for i in range(len(col))], axis=0)
+
+                def generate_excel_download(df, filename_prefix):
+                    try:
+                        buffer = io.BytesIO()
+                        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                            df.to_excel(writer, index=False, sheet_name='成绩明细')
+                        return buffer.getvalue(), f"{filename_prefix}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    except:
+                        return df.to_csv(index=False).encode('utf-8-sig'), f"{filename_prefix}.csv", "text/csv"
+
                 # --- 任课教师 ---
                 if role == "任课教师":
                     if subject in df_filtered.columns:
                         class_avg = df_filtered.groupby('班级')[subject].mean().round(1).reset_index()
-                        # 🔴 锁定教师柱状图
                         fig_bar_t = px.bar(class_avg, x='班级', y=subject, text_auto=True, title=f"所带班级【{subject}】均分对比")
                         fig_bar_t.update_layout(dragmode=False)
                         st.plotly_chart(fig_bar_t, use_container_width=True, config=CHART_CONFIG)
                         
                         st.markdown("#### 📋 学生成绩明细表")
                         table_to_show = df_filtered[['姓名', '考号', '班级', subject]].sort_values(by=subject, ascending=False)
-                        st.dataframe(table_to_show.style.format(precision=1), use_container_width=True, hide_index=True)
                         
-                        csv = table_to_show.to_csv(index=False).encode('utf-8-sig')
-                        st.download_button(label="📥 导出为 Excel/CSV 表格", data=csv, file_name=f"{LATEST_EXAM['name']}_{subject}成绩表.csv", mime='text/csv')
+                        st.dataframe(style_dataframe(table_to_show), use_container_width=True, hide_index=True)
+                        
+                        file_data, file_name, mime_type = generate_excel_download(table_to_show, f"{LATEST_EXAM['name']}_{subject}成绩表")
+                        st.download_button(label="📥 一键下载 Excel 成绩表", data=file_data, file_name=file_name, mime=mime_type, type="primary")
                         
                         if LATEST_EXAM.get(subject):
                             st.divider()
@@ -533,7 +542,6 @@ elif selected_nav == "教师后台":
                                 if k_stats:
                                     k_final = [{"知识点": kp, "掌握率": round(sum(rates)/len(rates)*100, 1)} for kp, rates in k_stats.items()]
                                     df_k = pd.DataFrame(k_final).sort_values("掌握率")
-                                    # 🔴 锁定知识点横向柱状图
                                     fig_k = px.bar(df_k, x="掌握率", y="知识点", orientation='h')
                                     fig_k.update_layout(dragmode=False)
                                     st.plotly_chart(fig_k, use_container_width=True, config=CHART_CONFIG)
@@ -546,7 +554,6 @@ elif selected_nav == "教师后台":
                 # --- 教务处 & 班主任 ---
                 else:
                     class_avg = df_filtered.groupby('班级')['总分'].mean().round(1).reset_index()
-                    # 🔴 锁定总分柱状图
                     fig_bar_tot = px.bar(class_avg, x='班级', y='总分', text_auto=True, title="总分均分对照")
                     fig_bar_tot.update_layout(dragmode=False)
                     st.plotly_chart(fig_bar_tot, use_container_width=True, config=CHART_CONFIG)
@@ -557,9 +564,9 @@ elif selected_nav == "教师后台":
                     other_cols = [c for c in cols if c not in front_cols]
                     table_to_show = df_filtered[front_cols + other_cols].sort_values(by=['班级', '总分'], ascending=[True, False])
                     
-                    st.dataframe(table_to_show.style.format(precision=1), use_container_width=True, hide_index=True)
+                    st.dataframe(style_dataframe(table_to_show), use_container_width=True, hide_index=True)
                     
-                    csv = table_to_show.to_csv(index=False).encode('utf-8-sig')
-                    st.download_button(label="📥 导出为 Excel/CSV 表格", data=csv, file_name=f"{LATEST_EXAM['name']}_{adm_direction}成绩汇总.csv", mime='text/csv')
+                    file_data, file_name, mime_type = generate_excel_download(table_to_show, f"{LATEST_EXAM['name']}_{adm_direction}成绩汇总")
+                    st.download_button(label="📥 一键下载 Excel 成绩表", data=file_data, file_name=file_name, mime=mime_type, type="primary")
                     
             else: st.warning("⚠️ 在当前选择的群体中，未找到您的授权班级数据。")
