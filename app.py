@@ -22,7 +22,6 @@ try:
     URL_TEACHER_ROSTER = st.secrets.get("URL_TEACHER_ROSTER", "") 
     AI_API_KEY = st.secrets.get("DEEPSEEK_API_KEY", "")
     
-    # 🌟 动态读取历次考试的全部单科链接
     EXAMS = []
     for i in range(1, 21):
         name = st.secrets.get(f"EXAM_NAME_{i}")
@@ -40,7 +39,6 @@ try:
                 "地理": st.secrets.get(f"URL_GEOGRAPHY_{i}", "")
             })
             
-    # 自动将编号最大的考试设为“最新考试”
     LATEST_EXAM_IDX = len(EXAMS) - 1 if EXAMS else -1
     LATEST_EXAM = EXAMS[-1] if EXAMS else None
 
@@ -55,14 +53,12 @@ else: client = None
 # 🛠️ 核心引擎：数据净化与总分聚合
 # ==============================================================================
 def clean_str(val):
-    """暴力切除幽灵后缀 .0 并清理空格"""
     if pd.isna(val): return ""
     v = str(val).strip()
     if v.endswith('.0'): v = v[:-2]
     return v
 
 def clean_name(val):
-    """清理姓名中可能潜伏的空格"""
     if pd.isna(val): return ""
     return str(val).replace(" ", "").strip()
 
@@ -74,7 +70,6 @@ def load_data(url, header_lines=0):
 
 @st.cache_data(ttl=600, show_spinner=False)
 def build_master_df(exam_idx):
-    """超级聚合引擎：加入强悍的合并净化机制"""
     if exam_idx < 0 or exam_idx >= len(EXAMS): return None
     exam = EXAMS[exam_idx]
     dfs = []
@@ -106,12 +101,10 @@ def build_master_df(exam_idx):
                                 if pd.notna(val): tot += val
                             except: pass
                                 
-                        # 🔴 核心修复：数据强力净化，确保物理和语文的考号绝对一致
                         s_name = clean_name(row[name_c])
                         s_id = clean_str(row[id_c])
                         s_cls = clean_str(row[cls_c]) if cls_c else "未分班"
                         
-                        # 只要考号不为空，就收录进去
                         if s_id: 
                             res.append({'姓名': s_name, '考号': s_id, '班级': s_cls, sub: round(tot, 1)})
                     if res: dfs.append(pd.DataFrame(res))
@@ -178,8 +171,12 @@ st.markdown("""
     .congrats-banner { background: linear-gradient(90deg, #FFFBEB, #FFF7ED); border: 2px solid #FCD34D; color: #92400E; padding: 12px 20px; border-radius: 12px; text-align: center; font-size: 18px; font-weight: bold; margin-bottom: 25px; box-shadow: 0 4px 12px rgba(252, 211, 77, 0.2); line-height: 1.6; }
     .main-title { text-align: center; color: #1E3A8A; font-size: 28px; font-weight: 800; margin-bottom: 15px; }
     .ai-box { background: linear-gradient(135deg, #f0f7ff 0%, #e6f3ff 100%); border-left: 5px solid #0068C9; padding: 20px; border-radius: 8px; font-size: 15px; color: #333;}
+    [data-testid="stDataFrame"] { border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
 </style>
 """, unsafe_allow_html=True)
+
+# 统一的图表锁定配置 (禁止工具栏、禁止滚轮缩放)
+CHART_CONFIG = {'displayModeBar': False, 'scrollZoom': False}
 
 selected_nav = option_menu(
     menu_title=None, options=["成绩总览", "历次追踪", "深度诊断", "教师后台"], 
@@ -221,7 +218,6 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                 if st.form_submit_button("🔍 立即查分", use_container_width=True):
                     if name and stu_id:
                         if latest_master is not None:
-                            # 登录输入也经过净化处理，保证百分百命中！
                             clean_n = clean_name(name)
                             clean_i = clean_str(stu_id)
                             match = latest_master[(latest_master['姓名'] == clean_n) & (latest_master['考号'] == clean_i)]
@@ -266,13 +262,15 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                 col_bar, col_radar = st.columns(2)
                 with col_bar:
                     fig1 = px.bar(chart_data, x='科目', y='得分', text_auto=True, color='科目')
-                    fig1.update_layout(showlegend=False, margin=dict(t=40, b=20, l=20, r=20), paper_bgcolor='rgba(0,0,0,0)')
-                    st.plotly_chart(fig1, use_container_width=True)
+                    # 🔴 锁定柱状图
+                    fig1.update_layout(showlegend=False, margin=dict(t=40, b=20, l=20, r=20), paper_bgcolor='rgba(0,0,0,0)', dragmode=False)
+                    st.plotly_chart(fig1, use_container_width=True, config=CHART_CONFIG)
                 with col_radar:
                     fig2 = px.line_polar(chart_data, r='得分', theta='科目', line_close=True)
                     fig2.update_traces(fill='toself', line_color='#0068C9')
-                    fig2.update_layout(margin=dict(t=40, b=20, l=40, r=40), paper_bgcolor='rgba(0,0,0,0)')
-                    st.plotly_chart(fig2, use_container_width=True)
+                    # 🔴 锁定雷达图 (固定视角，禁止拖拽)
+                    fig2.update_layout(margin=dict(t=40, b=20, l=40, r=40), paper_bgcolor='rgba(0,0,0,0)', dragmode=False)
+                    st.plotly_chart(fig2, use_container_width=True, config=CHART_CONFIG)
             
         # --- 模块 2: 历次追踪 ---
         elif selected_nav == "历次追踪":
@@ -292,12 +290,14 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                 with col_t1:
                     fig_score = px.line(df_trend, x="考试名称", y="总分", markers=True, title="总分走势图", line_shape="spline")
                     fig_score.update_traces(line_color="#FF4B4B", marker=dict(size=10))
-                    st.plotly_chart(fig_score, use_container_width=True)
+                    fig_score.update_layout(dragmode=False) # 🔴 锁定折线图
+                    st.plotly_chart(fig_score, use_container_width=True, config=CHART_CONFIG)
                 with col_t2:
                     fig_rank = px.line(df_trend, x="考试名称", y="班级排名", markers=True, title="班级排名走势 (曲线向下代表进步)", line_shape="spline")
                     fig_rank.update_traces(line_color="#0068C9", marker=dict(size=10))
                     fig_rank.update_yaxes(autorange="reversed")
-                    st.plotly_chart(fig_rank, use_container_width=True)
+                    fig_rank.update_layout(dragmode=False) # 🔴 锁定折线图
+                    st.plotly_chart(fig_rank, use_container_width=True, config=CHART_CONFIG)
             else: st.info("暂未抓取到您的历史轨迹。")
 
         # --- 模块 3: 深度诊断 ---
@@ -368,8 +368,9 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                                     avgs = df_kp['班级平均'].tolist() + [df_kp['班级平均'].tolist()[0]]
                                     fig.add_trace(go.Scatterpolar(r=avgs, theta=cats, fill='toself', name='班级平均', line_color='#cccccc'))
                                     fig.add_trace(go.Scatterpolar(r=mys, theta=cats, fill='toself', name='我的掌握', line_color='#FF4B4B'))
-                                    fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), paper_bgcolor='rgba(0,0,0,0)')
-                                    st.plotly_chart(fig, use_container_width=True)
+                                    # 🔴 锁定诊断雷达图，强制固定比例
+                                    fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100], fixedrange=True)), paper_bgcolor='rgba(0,0,0,0)', dragmode=False)
+                                    st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
                                 with c_text:
                                     st.markdown("#### 🩺 专家系统诊断")
                                     if weak_points_list:
@@ -445,9 +446,16 @@ elif selected_nav == "教师后台":
         master_df = build_master_df(LATEST_EXAM_IDX)
         if master_df is not None:
             adm_direction = st.selectbox("👉 选择分析群体", ["物理方向", "历史方向", "综合方向"])
-            df_filtered = master_df[master_df['方向'] == adm_direction]
+            df_direction_global = master_df[master_df['方向'] == adm_direction]
             
-            if role == "教务处": st.success("👑 全局最高权限，可查看所有班级数据。")
+            class_avg_global = pd.DataFrame()
+            if not df_direction_global.empty and '总分' in df_direction_global.columns:
+                class_avg_global = df_direction_global.groupby('班级')['总分'].mean().round(1).reset_index()
+                class_avg_global['均分排名'] = class_avg_global['总分'].rank(ascending=False, method='min').astype(int)
+            
+            df_filtered = df_direction_global.copy()
+            if role == "教务处": 
+                st.success("👑 全局最高权限，可查看所有班级数据。")
             elif role == "班主任":
                 df_filtered = df_filtered[df_filtered['班级'].isin(my_classes)]
                 st.success(f"🛡️ 班级保护生效：仅查看【{'、'.join(my_classes)}】全科成绩。")
@@ -457,13 +465,37 @@ elif selected_nav == "教师后台":
             
             if not df_filtered.empty:
                 st.divider()
-                st.markdown(f"#### 📊 【{LATEST_EXAM['name']}】学情分析")
                 
+                if role == "班主任" and not class_avg_global.empty:
+                    st.markdown(f"#### 🏆 【{adm_direction}】本班均分排名快报")
+                    metric_cols = st.columns(len(my_classes))
+                    for i, cls in enumerate(my_classes):
+                        cls_info = class_avg_global[class_avg_global['班级'] == cls]
+                        if not cls_info.empty:
+                            avg = cls_info.iloc[0]['总分']
+                            rk = cls_info.iloc[0]['均分排名']
+                            metric_cols[i].metric(label=f"{cls} 平均分", value=f"{avg} 分", delta=f"该方向年级第 {rk} 名", delta_color="off")
+                        else:
+                            metric_cols[i].metric(label=f"{cls}", value="暂无数据")
+                    st.markdown("<br>", unsafe_allow_html=True)
+
+                st.markdown(f"#### 📊 【{LATEST_EXAM['name']}】学情分析图表")
+                
+                # --- 任课教师 ---
                 if role == "任课教师":
                     if subject in df_filtered.columns:
                         class_avg = df_filtered.groupby('班级')[subject].mean().round(1).reset_index()
-                        st.plotly_chart(px.bar(class_avg, x='班级', y=subject, text_auto=True, title=f"所带班级【{subject}】均分对比"), use_container_width=True)
-                        st.dataframe(df_filtered[['姓名', '班级', subject]].sort_values(by=subject, ascending=False), use_container_width=True)
+                        # 🔴 锁定教师柱状图
+                        fig_bar_t = px.bar(class_avg, x='班级', y=subject, text_auto=True, title=f"所带班级【{subject}】均分对比")
+                        fig_bar_t.update_layout(dragmode=False)
+                        st.plotly_chart(fig_bar_t, use_container_width=True, config=CHART_CONFIG)
+                        
+                        st.markdown("#### 📋 学生成绩明细表")
+                        table_to_show = df_filtered[['姓名', '考号', '班级', subject]].sort_values(by=subject, ascending=False)
+                        st.dataframe(table_to_show.style.format(precision=1), use_container_width=True, hide_index=True)
+                        
+                        csv = table_to_show.to_csv(index=False).encode('utf-8-sig')
+                        st.download_button(label="📥 导出为 Excel/CSV 表格", data=csv, file_name=f"{LATEST_EXAM['name']}_{subject}成绩表.csv", mime='text/csv')
                         
                         if LATEST_EXAM.get(subject):
                             st.divider()
@@ -501,13 +533,33 @@ elif selected_nav == "教师后台":
                                 if k_stats:
                                     k_final = [{"知识点": kp, "掌握率": round(sum(rates)/len(rates)*100, 1)} for kp, rates in k_stats.items()]
                                     df_k = pd.DataFrame(k_final).sort_values("掌握率")
-                                    st.plotly_chart(px.bar(df_k, x="掌握率", y="知识点", orientation='h'), use_container_width=True)
+                                    # 🔴 锁定知识点横向柱状图
+                                    fig_k = px.bar(df_k, x="掌握率", y="知识点", orientation='h')
+                                    fig_k.update_layout(dragmode=False)
+                                    st.plotly_chart(fig_k, use_container_width=True, config=CHART_CONFIG)
+                                    
                                     if AI_API_KEY and st.button("✨ 提取专家 AI 教研建议", type="primary"):
                                         with st.spinner("AI 正在云端调取报告..."):
                                             st.markdown(f"<div class='ai-box'>{get_ai_advice_for_teacher(subject, '、'.join(df_k.head(3)['知识点'].tolist()))}</div>", unsafe_allow_html=True)
                     else: st.warning(f"当前群体的考试中未找到您的学科【{subject}】。")
+                
+                # --- 教务处 & 班主任 ---
                 else:
                     class_avg = df_filtered.groupby('班级')['总分'].mean().round(1).reset_index()
-                    st.plotly_chart(px.bar(class_avg, x='班级', y='总分', text_auto=True, title="总分均分对照"), use_container_width=True)
-                    st.dataframe(df_filtered, use_container_width=True)
+                    # 🔴 锁定总分柱状图
+                    fig_bar_tot = px.bar(class_avg, x='班级', y='总分', text_auto=True, title="总分均分对照")
+                    fig_bar_tot.update_layout(dragmode=False)
+                    st.plotly_chart(fig_bar_tot, use_container_width=True, config=CHART_CONFIG)
+                    
+                    st.markdown("#### 📋 学生全科成绩明细表")
+                    cols = df_filtered.columns.tolist()
+                    front_cols = ['姓名', '考号', '班级', '总分', '班级排名', '方向']
+                    other_cols = [c for c in cols if c not in front_cols]
+                    table_to_show = df_filtered[front_cols + other_cols].sort_values(by=['班级', '总分'], ascending=[True, False])
+                    
+                    st.dataframe(table_to_show.style.format(precision=1), use_container_width=True, hide_index=True)
+                    
+                    csv = table_to_show.to_csv(index=False).encode('utf-8-sig')
+                    st.download_button(label="📥 导出为 Excel/CSV 表格", data=csv, file_name=f"{LATEST_EXAM['name']}_{adm_direction}成绩汇总.csv", mime='text/csv')
+                    
             else: st.warning("⚠️ 在当前选择的群体中，未找到您的授权班级数据。")
