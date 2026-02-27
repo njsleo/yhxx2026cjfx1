@@ -52,8 +52,20 @@ if AI_API_KEY: client = openai.OpenAI(api_key=AI_API_KEY, base_url="https://api.
 else: client = None
 
 # ==============================================================================
-# 🛠️ 核心引擎：由单科表动态聚合生成【总分大表】与【排名】(防弹容错版)
+# 🛠️ 核心引擎：数据净化与总分聚合
 # ==============================================================================
+def clean_str(val):
+    """暴力切除幽灵后缀 .0 并清理空格"""
+    if pd.isna(val): return ""
+    v = str(val).strip()
+    if v.endswith('.0'): v = v[:-2]
+    return v
+
+def clean_name(val):
+    """清理姓名中可能潜伏的空格"""
+    if pd.isna(val): return ""
+    return str(val).replace(" ", "").strip()
+
 @st.cache_data(ttl=600)
 def load_data(url, header_lines=0):
     if not url or not url.strip(): return None
@@ -62,7 +74,7 @@ def load_data(url, header_lines=0):
 
 @st.cache_data(ttl=600, show_spinner=False)
 def build_master_df(exam_idx):
-    """超级聚合引擎：防弹级容错算分"""
+    """超级聚合引擎：加入强悍的合并净化机制"""
     if exam_idx < 0 or exam_idx >= len(EXAMS): return None
     exam = EXAMS[exam_idx]
     dfs = []
@@ -85,21 +97,23 @@ def build_master_df(exam_idx):
                     for _, row in df_sub.iterrows():
                         tot = 0
                         for c in df_sub.columns:
-                            # 完全跳过特征列，避免误伤
                             if c in [name_c, id_c, cls_c]: continue
                             cstr = str(c[0]) if isinstance(c, tuple) else str(c)
                             if '总分' in cstr or '排名' in cstr: continue
                             
-                            # 暴力求和，无需依赖第三行满分值
                             try: 
                                 val = float(row[c])
                                 if pd.notna(val): tot += val
                             except: pass
                                 
-                        s_name = str(row[name_c]).strip()
-                        s_id = str(row[id_c]).strip()
-                        s_cls = str(row[cls_c]).strip() if cls_c else "未分班"
-                        res.append({'姓名': s_name, '考号': s_id, '班级': s_cls, sub: round(tot, 1)})
+                        # 🔴 核心修复：数据强力净化，确保物理和语文的考号绝对一致
+                        s_name = clean_name(row[name_c])
+                        s_id = clean_str(row[id_c])
+                        s_cls = clean_str(row[cls_c]) if cls_c else "未分班"
+                        
+                        # 只要考号不为空，就收录进去
+                        if s_id: 
+                            res.append({'姓名': s_name, '考号': s_id, '班级': s_cls, sub: round(tot, 1)})
                     if res: dfs.append(pd.DataFrame(res))
     
     if not dfs: return None
@@ -118,7 +132,7 @@ def build_master_df(exam_idx):
     return master
 
 # ==============================================================================
-# 🧠 AI 导师功能定义 (30天缓存)
+# 🧠 AI 导师功能定义
 # ==============================================================================
 @st.cache_data(ttl=2592000, show_spinner=False)
 def get_ai_advice_for_student(student_name, subject, weak_points, strong_points):
@@ -207,10 +221,13 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                 if st.form_submit_button("🔍 立即查分", use_container_width=True):
                     if name and stu_id:
                         if latest_master is not None:
-                            match = latest_master[(latest_master['姓名'] == name.strip()) & (latest_master['考号'] == stu_id.strip())]
+                            # 登录输入也经过净化处理，保证百分百命中！
+                            clean_n = clean_name(name)
+                            clean_i = clean_str(stu_id)
+                            match = latest_master[(latest_master['姓名'] == clean_n) & (latest_master['考号'] == clean_i)]
                             if not match.empty:
-                                st.session_state.logged_in_student = name.strip()
-                                st.session_state.logged_in_id = stu_id.strip()
+                                st.session_state.logged_in_student = clean_n
+                                st.session_state.logged_in_id = clean_i
                                 st.session_state.logged_in_direction = match.iloc[0]['方向']
                                 st.rerun()
                             else: st.error("❌ 未查询到成绩，请确认姓名和考号是否正确。")
@@ -238,7 +255,6 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
             k3.metric("总分", f"{stu_data['总分']}")
             k4.metric("班级排名", stu_data['班级排名'])
             
-            # 修复 Markdown 渲染断行问题
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("### 📊 各科得分对比")
             
@@ -284,7 +300,7 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                     st.plotly_chart(fig_rank, use_container_width=True)
             else: st.info("暂未抓取到您的历史轨迹。")
 
-        # --- 模块 3: 深度诊断 (新增智能满分回退) ---
+        # --- 模块 3: 深度诊断 ---
         elif selected_nav == "深度诊断":
             avail_subs = [s for s in ['语文','数学','英语','物理','化学','生物','历史','政治','地理'] if s in stu_data and stu_data[s] > 0 and LATEST_EXAM.get(s)]
             if not avail_subs: st.info("暂未配置您所考科目的详细题库数据。")
@@ -300,12 +316,11 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                         elif '班级' in cstr: cls_c = col
                         
                     if name_c and id_c:
-                        all_names = df_diag[name_c].astype(str).str.strip().values
-                        all_ids = df_diag[id_c].astype(str).str.strip().values
                         found_idx = -1
-                        for idx, (n, i) in enumerate(zip(all_names, all_ids)):
-                            if n == st.session_state.logged_in_student and i == st.session_state.logged_in_id: found_idx = idx; break
-                            
+                        for idx, row in df_diag.iterrows():
+                            if clean_name(row[name_c]) == st.session_state.logged_in_student and clean_str(row[id_c]) == st.session_state.logged_in_id: 
+                                found_idx = idx; break
+                                
                         if found_idx != -1:
                             knowledge_map = {} 
                             for col in df_diag.columns:
@@ -320,7 +335,6 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                                 try: full = float(col[2]) if isinstance(col, tuple) and len(col) > 2 else 0
                                 except: full = 0
                                 
-                                # 🌟 智能回退：如果没拿到表头的满分，自动找全班最高分作为满分参考
                                 if full <= 0:
                                     try: full = float(pd.to_numeric(df_diag[col], errors='coerce').max())
                                     except: full = 0
