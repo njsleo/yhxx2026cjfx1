@@ -52,7 +52,7 @@ if AI_API_KEY: client = openai.OpenAI(api_key=AI_API_KEY, base_url="https://api.
 else: client = None
 
 # ==============================================================================
-# 🛠️ 核心引擎：数据净化、班级名统一、总分聚合及【双排名计算】
+# 🛠️ 核心引擎：数据净化、班级名统一、总分聚合
 # ==============================================================================
 def clean_str(val):
     if pd.isna(val): return ""
@@ -64,7 +64,6 @@ def clean_name(val):
     if pd.isna(val): return ""
     return str(val).replace(" ", "").strip()
 
-# 🔴 智能班级翻译官：强制统一各式各样的班级写法
 def normalize_class_name(c):
     if pd.isna(c): return ""
     c = str(c).replace(" ", "").strip()
@@ -132,8 +131,9 @@ def build_master_df(exam_idx):
         return "综合方向"
     master['方向'] = master.apply(get_dir, axis=1)
     
-    master['班级排名'] = master.groupby(['班级', '方向'])['总分'].rank(ascending=False, method='min').fillna(0).astype(int)
-    master['年级排名'] = master.groupby(['方向'])['总分'].rank(ascending=False, method='min').fillna(0).astype(int)
+    # 🔴 明确命名为【总分排名】，防止与单科排名混淆
+    master['总分班级排名'] = master.groupby(['班级', '方向'])['总分'].rank(ascending=False, method='min').fillna(0).astype(int)
+    master['总分年级排名'] = master.groupby(['方向'])['总分'].rank(ascending=False, method='min').fillna(0).astype(int)
     return master
 
 # ==============================================================================
@@ -161,7 +161,7 @@ def render_html_table(df):
     st.markdown(html, unsafe_allow_html=True)
 
 # ==============================================================================
-# 📥 顶级导出神器：带巨型表头、颜色相间、自适应宽度的真正 Excel (完美修复颜色 Bug)
+# 📥 顶级导出神器：带巨型表头、颜色相间、自适应宽度的真正 Excel
 # ==============================================================================
 def generate_excel_download(df, filename_prefix, title_text):
     try:
@@ -174,15 +174,13 @@ def generate_excel_download(df, filename_prefix, title_text):
             worksheet = writer.sheets['成绩明细']
             num_cols = len(df.columns)
             
-            # 1. 顶部巨型表头合并
             worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=num_cols)
             title_cell = worksheet.cell(row=1, column=1, value=title_text)
-            title_cell.font = Font(size=20, bold=True, color="FFFFFFFF") # 纯白
-            title_cell.fill = PatternFill(start_color="FF0068C9", end_color="FF0068C9", fill_type="solid") # Streamlit的标志蓝
+            title_cell.font = Font(size=20, bold=True, color="FFFFFFFF") 
+            title_cell.fill = PatternFill(start_color="FF0068C9", end_color="FF0068C9", fill_type="solid") 
             title_cell.alignment = Alignment(horizontal="center", vertical="center")
-            worksheet.row_dimensions[1].height = 45 # 巨型表头高度
+            worksheet.row_dimensions[1].height = 45 
             
-            # 2. 颜色定义 (🔴 必须加上 FF 前缀表示不透明)
             header_fill = PatternFill(start_color="FF4A90E2", end_color="FF4A90E2", fill_type="solid")
             header_font = Font(bold=True, color="FFFFFFFF", size=12)
             even_fill = PatternFill(start_color="FFF8FAFC", end_color="FFF8FAFC", fill_type="solid")
@@ -190,7 +188,6 @@ def generate_excel_download(df, filename_prefix, title_text):
             thin_border = Border(left=Side(style='thin', color='FFDDDDDD'), right=Side(style='thin', color='FFDDDDDD'), 
                                  top=Side(style='thin', color='FFDDDDDD'), bottom=Side(style='thin', color='FFDDDDDD'))
             
-            # 3. 循环上色、增加行距与列宽
             for col_idx in range(1, num_cols + 1):
                 col_letter = get_column_letter(col_idx)
                 max_len = sum(2 if ord(c)>127 else 1 for c in str(df.columns[col_idx-1]))
@@ -213,7 +210,6 @@ def generate_excel_download(df, filename_prefix, title_text):
                         
                 worksheet.column_dimensions[col_letter].width = max_len + 4
 
-            # 4. 加大表格所有数据行的行高
             for row_idx in range(2, len(df) + 3):
                 worksheet.row_dimensions[row_idx].height = 25
 
@@ -337,17 +333,20 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
         master_df = build_master_df(LATEST_EXAM_IDX)
         stu_data = master_df[(master_df['姓名'] == st.session_state.logged_in_student) & (master_df['考号'] == st.session_state.logged_in_id)].iloc[0]
         
+        # --- 模块 1: 成绩总览 ---
         if selected_nav == "成绩总览":
             st.markdown(f"### 🏆 【{LATEST_EXAM['name']}】成绩概览")
             k1, k2, k3, k4, k5 = st.columns(5)
             k1.metric("姓名", stu_data['姓名'])
             k2.metric("方向", stu_data['方向'])
             k3.metric("总分", f"{stu_data['总分']}")
-            k4.metric("班级名次", f"第 {stu_data['班级排名']} 名")
-            k5.metric("年级名次", f"第 {stu_data['年级排名']} 名")
+            # 🔴 学生端也明确标注为“总分排名”
+            k4.metric("班级名次", f"第 {stu_data['总分班级排名']} 名")
+            k5.metric("年级名次", f"第 {stu_data['总分年级排名']} 名")
             
             st.markdown("<br>", unsafe_allow_html=True)
             st.markdown("### 📊 各科得分对比")
+            
             subs = ['语文','数学','英语','物理','化学','生物','历史','政治','地理']
             valid_subs = [s for s in subs if s in stu_data and stu_data[s] > 0]
             
@@ -364,6 +363,7 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                     fig2.update_layout(margin=dict(t=40, b=20, l=40, r=40), paper_bgcolor='rgba(0,0,0,0)', dragmode=False)
                     st.plotly_chart(fig2, use_container_width=True, config=CHART_CONFIG)
             
+        # --- 模块 2: 历次追踪 ---
         elif selected_nav == "历次追踪":
             st.markdown(f"### 📈 历次考试波动轨迹")
             history_records = []
@@ -373,7 +373,7 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                     if m_df is not None and not m_df.empty:
                         stu_h = m_df[(m_df['姓名'] == st.session_state.logged_in_student) & (m_df['考号'] == st.session_state.logged_in_id)]
                         if not stu_h.empty:
-                            history_records.append({ "考试名称": exam['name'], "总分": float(stu_h.iloc[0]['总分']), "年级排名": int(stu_h.iloc[0]['年级排名']) })
+                            history_records.append({ "考试名称": exam['name'], "总分": float(stu_h.iloc[0]['总分']), "年级排名": int(stu_h.iloc[0]['总分年级排名']) })
             
             if history_records:
                 df_trend = pd.DataFrame(history_records)
@@ -384,13 +384,14 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                     fig_score.update_layout(dragmode=False)
                     st.plotly_chart(fig_score, use_container_width=True, config=CHART_CONFIG)
                 with col_t2:
-                    fig_rank = px.line(df_trend, x="考试名称", y="年级排名", markers=True, title="年级排名走势 (曲线向下代表进步)", line_shape="spline")
+                    fig_rank = px.line(df_trend, x="考试名称", y="年级排名", markers=True, title="总分年级排名走势 (向下代表进步)", line_shape="spline")
                     fig_rank.update_traces(line_color="#0068C9", marker=dict(size=10))
                     fig_rank.update_yaxes(autorange="reversed")
                     fig_rank.update_layout(dragmode=False)
                     st.plotly_chart(fig_rank, use_container_width=True, config=CHART_CONFIG)
             else: st.info("暂未抓取到您的历史轨迹。")
 
+        # --- 模块 3: 深度诊断 ---
         elif selected_nav == "深度诊断":
             avail_subs = [s for s in ['语文','数学','英语','物理','化学','生物','历史','政治','地理'] if s in stu_data and stu_data[s] > 0 and LATEST_EXAM.get(s)]
             if not avail_subs: st.info("暂未配置您所考科目的详细题库数据。")
@@ -495,7 +496,11 @@ elif selected_nav == "教师后台":
                 pwd = st.text_input("🔐 专属密码", type="password")
                 
                 if st.button("验证并进入控制台", use_container_width=True, type="primary"):
-                    roster_df = load_data(URL_TEACHER_ROSTER)
+                    try:
+                        roster_df = pd.read_csv(URL_TEACHER_ROSTER, on_bad_lines='skip')
+                    except:
+                        roster_df = None
+                        
                     if roster_df is not None and '教师姓名' in roster_df.columns:
                         t_info = roster_df[roster_df['教师姓名'].astype(str).str.strip() == t_name.strip()]
                         if not t_info.empty:
@@ -512,7 +517,6 @@ elif selected_nav == "教师后台":
                                 st.session_state.teacher_name = t_name.strip()
                                 st.session_state.teacher_subject = str(info.get('学科', '')).strip()
                                 
-                                # 🔴 终极修复：全能标点粉碎机！不管填的是中文逗号、顿号还是空格，统统切开！
                                 classes_raw = str(info.get('管理班级', ''))
                                 classes_clean = re.sub(r'[，、。；/|\s]+', ',', classes_raw)
                                 st.session_state.teacher_classes = [normalize_class_name(c) for c in classes_clean.split(',') if c.strip()]
@@ -533,7 +537,6 @@ elif selected_nav == "教师后台":
         
         c1, c2 = st.columns([5, 1])
         c1.markdown(f"### 👨‍🏫 欢迎，{name}老师！【权限级别：{role}】")
-        # 🔴 关键按钮：退出登录！
         if c2.button("🚪 安全退出 (切换身份必点)", use_container_width=True): logout()
         
         master_df = build_master_df(LATEST_EXAM_IDX)
@@ -550,7 +553,6 @@ elif selected_nav == "教师后台":
             if role == "教务处": 
                 st.success("👑 全局最高权限，可查看所有班级数据。")
             elif role in ["班主任", "任课教师"]:
-                # 🔴 模糊匹配绝杀：再也不怕“高三生物一班”匹配不上“生物一班”了！
                 def class_match(cls_str):
                     c1 = normalize_class_name(cls_str)
                     for my_c in my_classes:
@@ -564,7 +566,6 @@ elif selected_nav == "教师后台":
             if not df_filtered.empty:
                 st.divider()
                 
-                # 顶部核心指标：本班均分及排名
                 if role == "班主任" and not class_avg_global.empty:
                     st.markdown(f"#### 🏆 【{adm_direction}】本班均分排名快报")
                     metric_cols = st.columns(len(my_classes))
@@ -580,7 +581,7 @@ elif selected_nav == "教师后台":
 
                 st.markdown(f"#### 📊 【{LATEST_EXAM['name']}】学情分析图表")
 
-                # --- 任课教师 ---
+                # --- 🔴 任课教师视角：专门计算并展示【单科排名】 ---
                 if role == "任课教师":
                     if subject in df_filtered.columns:
                         class_avg = df_filtered.groupby('班级')[subject].mean().round(1).reset_index()
@@ -589,12 +590,19 @@ elif selected_nav == "教师后台":
                         st.plotly_chart(fig_bar_t, use_container_width=True, config=CHART_CONFIG)
                         
                         st.markdown("#### 📋 学生成绩明细表")
-                        table_to_show = df_filtered[['姓名', '考号', '班级', '年级排名', '班级排名', subject]].sort_values(by=subject, ascending=False)
                         
-                        # 🔴 呈现高颜值、宽大字体的斑马线网页表格
+                        # 🔴 核心修复：单独为该科目计算真正的【单科班级排名】和【单科年级排名】
+                        # 班级单科排名：在这个班级内部，按该科目分数排
+                        df_filtered[f'{subject}班级排名'] = df_filtered.groupby('班级')[subject].rank(ascending=False, method='min').fillna(0).astype(int)
+                        # 年级单科排名：在整个方向(比如整个物理方向)内，按该科目分数排
+                        df_filtered[f'{subject}年级排名'] = df_filtered[subject].rank(ascending=False, method='min').fillna(0).astype(int)
+
+                        table_to_show = df_filtered[['姓名', '考号', '班级', f'{subject}年级排名', f'{subject}班级排名', subject]].sort_values(by=subject, ascending=False)
+                        
+                        # 网页端渲染
                         render_html_table(table_to_show)
                         
-                        # 🔴 生成真·Excel格式下载 (带蓝色大表头)
+                        # 生成原汁原味的 Excel 下载
                         excel_title = f"【{LATEST_EXAM['name']}】{subject}成绩单"
                         file_data, file_name, mime_type = generate_excel_download(table_to_show, f"{LATEST_EXAM['name']}_{subject}成绩单", excel_title)
                         st.download_button(label="📥 一键下载精美 Excel 成绩单", data=file_data, file_name=file_name, mime=mime_type, type="primary")
@@ -644,7 +652,7 @@ elif selected_nav == "教师后台":
                                             st.markdown(f"<div class='ai-box'>{get_ai_advice_for_teacher(subject, '、'.join(df_k.head(3)['知识点'].tolist()))}</div>", unsafe_allow_html=True)
                     else: st.warning(f"当前群体的考试中未找到您的学科【{subject}】。")
                 
-                # --- 教务处 & 班主任 ---
+                # --- 教务处 & 班主任视角 ---
                 else:
                     class_avg = df_filtered.groupby('班级')['总分'].mean().round(1).reset_index()
                     fig_bar_tot = px.bar(class_avg, x='班级', y='总分', text_auto=True, title="总分均分对照")
@@ -653,14 +661,13 @@ elif selected_nav == "教师后台":
                     
                     st.markdown("#### 📋 学生全科成绩明细表")
                     cols = df_filtered.columns.tolist()
-                    front_cols = ['姓名', '考号', '班级', '总分', '年级排名', '班级排名', '方向']
+                    # 明确展示为总分排名
+                    front_cols = ['姓名', '考号', '班级', '总分', '总分年级排名', '总分班级排名', '方向']
                     other_cols = [c for c in cols if c not in front_cols]
                     table_to_show = df_filtered[front_cols + other_cols].sort_values(by=['班级', '总分'], ascending=[True, False])
                     
-                    # 🔴 呈现高颜值、宽大字体的斑马线网页表格
                     render_html_table(table_to_show)
                     
-                    # 🔴 生成真·Excel格式下载 (带蓝色大表头)
                     excel_title = f"【{LATEST_EXAM['name']}】{adm_direction}成绩汇总单"
                     file_data, file_name, mime_type = generate_excel_download(table_to_show, f"{LATEST_EXAM['name']}_{adm_direction}成绩汇总单", excel_title)
                     st.download_button(label="📥 一键下载精美 Excel 成绩单", data=file_data, file_name=file_name, mime=mime_type, type="primary")
