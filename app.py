@@ -125,7 +125,6 @@ def build_master_df(exam_idx):
     master[present_subs] = master[present_subs].fillna(0)
     master['总分'] = master[present_subs].sum(axis=1).round(1)
     
-    # 🔴 智能方向分配：即使没读到某科成绩，只要班级名字带"文"也分到历史！
     def get_dir(r):
         if r.get('物理', 0) > 0: return "物理方向"
         if r.get('历史', 0) > 0: return "历史方向"
@@ -213,7 +212,7 @@ def generate_excel_download(df, filename_prefix, title_text):
         return df.to_csv(index=False).encode('utf-8-sig'), f"{filename_prefix}.csv", "text/csv"
 
 # ==============================================================================
-# 📥 导出神器 2：精装版 AI Word 报告 (🔴 标题4号，内容5号，1.5倍行距，无小黑点)
+# 📥 导出神器 2：Word 自动排版引擎 (无星号、无黑点、4号标题、5号仿宋、1.5行距)
 # ==============================================================================
 def generate_ai_doc(title, content):
     try:
@@ -224,33 +223,36 @@ def generate_ai_doc(title, content):
         
         doc = docx.Document()
         
-        # 1. 强制设定全局默认：仿宋，五号(10.5pt)
+        # --- 全局默认：五号 (10.5pt) 仿宋 ---
         style = doc.styles['Normal']
         style.font.name = '仿宋'
         style._element.rPr.rFonts.set(qn('w:eastAsia'), '仿宋')
         style.font.size = Pt(10.5)
         
-        # 2. 写入大标题：四号(14pt)，黑体，居中
+        # --- 大标题：四号 (14pt) 黑体，居中 ---
         h = doc.add_heading(level=1)
         h.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
         run = h.add_run(title)
         run.font.name = '黑体'
         run._element.rPr.rFonts.set(qn('w:eastAsia'), '黑体')
         run.font.size = Pt(14)
-        run.font.color.rgb = docx.shared.RGBColor(0, 0, 0) # 强制纯黑色
+        run.font.color.rgb = docx.shared.RGBColor(0, 0, 0)
 
-        # 3. 解析内文，抹除所有星号
+        # --- Python 智能剥离星号并保留加粗格式 ---
         def add_runs_to_paragraph(p, text):
             parts = re.split(r'(\*\*.*?\*\*)', text)
             for part in parts:
                 if part.startswith('**') and part.endswith('**'):
-                    clean_text = part[2:-2].replace('*', '') # 摘除残留星号
+                    # 剥除外层的双星号，同时清理内部残留的单星号
+                    clean_text = part[2:-2].replace('*', '') 
                     r = p.add_run(clean_text)
                     r.bold = True
                 else:
+                    # 普通文字清理单星号
                     clean_text = part.replace('*', '')
                     r = p.add_run(clean_text)
-                # 统一为五号仿宋
+                
+                # 无论是否加粗，强制设置为五号仿宋
                 r.font.name = '仿宋'
                 r._element.rPr.rFonts.set(qn('w:eastAsia'), '仿宋')
                 r.font.size = Pt(10.5)
@@ -260,27 +262,28 @@ def generate_ai_doc(title, content):
             line = line.strip()
             if not line: continue
             
-            # 🔴 彻底粉碎小黑点和横杠！变回纯净段落
+            # --- 彻底粉碎小黑点、横杠等列表符号 ---
             if line.startswith('- '): line = line[2:].strip()
             if line.startswith('* '): line = line[2:].strip()
             line = line.replace('•', '').replace('·', '').strip()
             
-            # 如果是小标题 (带有井号)
+            # 处理小标题 (带井号)
             if line.startswith('#'):
                 level = 0
                 while level < len(line) and line[level] == '#': level += 1
                 text = line[level:].strip().replace('*', '')
                 
                 p = doc.add_paragraph()
-                p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE # 1.5倍行距
+                p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE # 1.5 倍行距
                 r = p.add_run(text)
                 r.bold = True
-                r.font.size = Pt(12) # 小标题用小四(12pt)
+                r.font.size = Pt(12) # 小标题用小四 (12pt)
                 r.font.name = '黑体'
                 r._element.rPr.rFonts.set(qn('w:eastAsia'), '黑体')
+            # 处理正文段落
             else:
                 p = doc.add_paragraph()
-                p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE # 1.5倍行距
+                p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE # 1.5 倍行距
                 add_runs_to_paragraph(p, line)
 
         buffer = io.BytesIO()
@@ -291,12 +294,13 @@ def generate_ai_doc(title, content):
         return text_content.encode('utf-8-sig'), f"{title}.txt", "text/plain"
 
 # ==============================================================================
-# 🧠 AI 导师功能定义
+# 🧠 AI 导师提示词 (🔴 恢复至高智商版本，不再限制符号，排版交给 Python)
 # ==============================================================================
 @st.cache_data(ttl=2592000, show_spinner=False)
 def get_ai_advice_for_student(student_name, subject, weak_points, strong_points):
     if not client: return "⚠️ AI 尚未配置。"
-    prompt = f"你是经验丰富的高中{subject}教师。学生 {student_name} 优势：{strong_points}。薄弱：{weak_points}。写约300字的个性化提分计划。注意：直接写段落，不要用任何项目符号或小黑点，不要用星号。"
+    # 恢复高品质生成提示词
+    prompt = f"你是拥有20年经验的高中{subject}教师。学生 {student_name} 优势：{strong_points}。薄弱：{weak_points}。请结合具体知识点，写约300字的个性化鼓励和提分计划，给出具体的学习方法指导。"
     try:
         res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是专业AI导师。"}, {"role": "user", "content": prompt}])
         return res.choices[0].message.content
@@ -305,17 +309,17 @@ def get_ai_advice_for_student(student_name, subject, weak_points, strong_points)
 @st.cache_data(ttl=2592000, show_spinner=False)
 def get_ai_grouped_advice_for_teacher(subject, grouped_data_str):
     if not client: return "⚠️ AI 尚未配置。"
+    # 恢复高品质深度教研分析提示词
     prompt = f"""你是资深的高中{subject}教研专家。
-以下是我所带班级在本次考试中，各个薄弱知识点及对应的得分率不足60%的具体学生名单：
+以下是我所带班级在本次考试中，各个薄弱知识点及对应的具体学生名单（仅列出了得分率不足 60% 的学生）：
 
 {grouped_data_str}
 
 请你基于以上真实数据，为我生成一份「精准靶向辅导与分层教学报告」。
 要求：
-1. 不要说空话，直接针对上述出现的薄弱点进行归类分析。
-2. 分析这些学生为什么失分，给出具体的补救和教学措施。
-3. 必须在建议中自然地提及对应的学生名字。
-4. 纯净排版：不要使用任何小黑点、横杠等列表符号，直接用1. 2. 3. 分段输出，不要出现星号。
+1. 深度剖析：直接针对上述出现的薄弱点进行深度归类分析，指出学生在模型或思路上可能的错因。
+2. 靶向措施：给出具体、可操作的课堂补救和教学措施。
+3. 必须在建议中自然地提及对应的学生名字，让这份报告具有极强的落地实操性。
 """
     try:
         res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是精准教研专家AI。"}, {"role": "user", "content": prompt}])
@@ -369,7 +373,6 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
         
         latest_master = build_master_df(LATEST_EXAM_IDX)
         if latest_master is not None and not latest_master.empty:
-            # 🔴 彻底修复光荣榜！双榜齐发！
             top_p = latest_master[latest_master['方向'] == '物理方向'].sort_values('总分', ascending=False).head(5)['姓名'].tolist()
             top_h = latest_master[latest_master['方向'] == '历史方向'].sort_values('总分', ascending=False).head(5)['姓名'].tolist()
             
@@ -419,6 +422,7 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
         master_df = build_master_df(LATEST_EXAM_IDX)
         stu_data = master_df[(master_df['姓名'] == st.session_state.logged_in_student) & (master_df['考号'] == st.session_state.logged_in_id)].iloc[0]
         
+        # --- 模块 1: 成绩总览 ---
         if selected_nav == "成绩总览":
             st.markdown(f"### 🏆 【{LATEST_EXAM['name']}】成绩概览")
             k1, k2, k3, k4, k5 = st.columns(5)
@@ -447,6 +451,7 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                     fig2.update_layout(margin=dict(t=40, b=20, l=40, r=40), paper_bgcolor='rgba(0,0,0,0)', dragmode=False)
                     st.plotly_chart(fig2, use_container_width=True, config=CHART_CONFIG)
             
+        # --- 模块 2: 历次追踪 ---
         elif selected_nav == "历次追踪":
             st.markdown(f"### 📈 历次考试波动轨迹")
             history_records = []
@@ -474,6 +479,7 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                     st.plotly_chart(fig_rank, use_container_width=True, config=CHART_CONFIG)
             else: st.info("暂未抓取到您的历史轨迹。")
 
+        # --- 模块 3: 深度诊断 ---
         elif selected_nav == "深度诊断":
             avail_subs = [s for s in ['语文','数学','英语','物理','化学','生物','历史','政治','地理'] if s in stu_data and stu_data[s] > 0 and LATEST_EXAM.get(s)]
             if not avail_subs: st.info("暂未配置您所考科目的详细题库数据。")
@@ -577,7 +583,7 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                                                 st.session_state[saved_list_key].insert(0, saved_reply)
                                                 st.toast("✅ 已成功存入下方档案库！")
                                         with t_c2:
-                                            export_fmt = st.selectbox("导出格式", ["Word (4号标题/5号仿宋)", "TXT 纯文本"], label_visibility="collapsed", key="fmt_stu")
+                                            export_fmt = st.selectbox("导出格式", ["Word文档 (自动精排版)", "TXT纯文本"], label_visibility="collapsed", key="fmt_stu")
                                         with t_c3:
                                             if "Word" in export_fmt:
                                                 file_data, file_name, mime_type = generate_ai_doc(doc_title, saved_reply)
@@ -805,7 +811,7 @@ elif selected_nav == "教师后台":
                                                             st.session_state[saved_t_list_key].insert(0, saved_reply)
                                                             st.toast("✅ 已成功存入网页历史档案库！")
                                                     with t_c2:
-                                                        export_fmt = st.selectbox("导出格式", ["Word (4号标题/5号仿宋)", "TXT 纯文本"], label_visibility="collapsed", key="fmt_tea")
+                                                        export_fmt = st.selectbox("导出格式", ["Word文档 (自动精排版)", "TXT纯文本"], label_visibility="collapsed", key="fmt_tea")
                                                     with t_c3:
                                                         if "Word" in export_fmt:
                                                             file_data, file_name, mime_type = generate_ai_doc(doc_title, saved_reply)
