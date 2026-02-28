@@ -52,7 +52,7 @@ if AI_API_KEY: client = openai.OpenAI(api_key=AI_API_KEY, base_url="https://api.
 else: client = None
 
 # ==============================================================================
-# 🛠️ 核心引擎：数据净化、班级名统一、总分聚合
+# 🛠️ 核心引擎：数据净化、班级名统一、总分聚合及【双排名计算】
 # ==============================================================================
 def clean_str(val):
     if pd.isna(val): return ""
@@ -131,7 +131,6 @@ def build_master_df(exam_idx):
         return "综合方向"
     master['方向'] = master.apply(get_dir, axis=1)
     
-    # 🔴 明确命名为【总分排名】，防止与单科排名混淆
     master['总分班级排名'] = master.groupby(['班级', '方向'])['总分'].rank(ascending=False, method='min').fillna(0).astype(int)
     master['总分年级排名'] = master.groupby(['方向'])['总分'].rank(ascending=False, method='min').fillna(0).astype(int)
     return master
@@ -340,7 +339,6 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
             k1.metric("姓名", stu_data['姓名'])
             k2.metric("方向", stu_data['方向'])
             k3.metric("总分", f"{stu_data['总分']}")
-            # 🔴 学生端也明确标注为“总分排名”
             k4.metric("班级名次", f"第 {stu_data['总分班级排名']} 名")
             k5.metric("年级名次", f"第 {stu_data['总分年级排名']} 名")
             
@@ -566,6 +564,7 @@ elif selected_nav == "教师后台":
             if not df_filtered.empty:
                 st.divider()
                 
+                # 指标卡片
                 if role == "班主任" and not class_avg_global.empty:
                     st.markdown(f"#### 🏆 【{adm_direction}】本班均分排名快报")
                     metric_cols = st.columns(len(my_classes))
@@ -581,7 +580,7 @@ elif selected_nav == "教师后台":
 
                 st.markdown(f"#### 📊 【{LATEST_EXAM['name']}】学情分析图表")
 
-                # --- 🔴 任课教师视角：专门计算并展示【单科排名】 ---
+                # --- 🔴 任课教师视角 ---
                 if role == "任课教师":
                     if subject in df_filtered.columns:
                         class_avg = df_filtered.groupby('班级')[subject].mean().round(1).reset_index()
@@ -590,66 +589,17 @@ elif selected_nav == "教师后台":
                         st.plotly_chart(fig_bar_t, use_container_width=True, config=CHART_CONFIG)
                         
                         st.markdown("#### 📋 学生成绩明细表")
-                        
-                        # 🔴 核心修复：单独为该科目计算真正的【单科班级排名】和【单科年级排名】
-                        # 班级单科排名：在这个班级内部，按该科目分数排
                         df_filtered[f'{subject}班级排名'] = df_filtered.groupby('班级')[subject].rank(ascending=False, method='min').fillna(0).astype(int)
-                        # 年级单科排名：在整个方向(比如整个物理方向)内，按该科目分数排
                         df_filtered[f'{subject}年级排名'] = df_filtered[subject].rank(ascending=False, method='min').fillna(0).astype(int)
 
                         table_to_show = df_filtered[['姓名', '考号', '班级', f'{subject}年级排名', f'{subject}班级排名', subject]].sort_values(by=subject, ascending=False)
                         
-                        # 网页端渲染
                         render_html_table(table_to_show)
                         
-                        # 生成原汁原味的 Excel 下载
                         excel_title = f"【{LATEST_EXAM['name']}】{subject}成绩单"
                         file_data, file_name, mime_type = generate_excel_download(table_to_show, f"{LATEST_EXAM['name']}_{subject}成绩单", excel_title)
                         st.download_button(label="📥 一键下载精美 Excel 成绩单", data=file_data, file_name=file_name, mime=mime_type, type="primary")
                         
-                        if LATEST_EXAM.get(subject):
-                            st.divider()
-                            st.markdown(f"#### 🧠 【{subject}】底层共性诊断与 AI 教研")
-                            df_diag = load_data(LATEST_EXAM[subject], header_lines=[0, 1, 2])
-                            if df_diag is not None:
-                                name_c, id_c, cls_c = None, None, None
-                                for col in df_diag.columns:
-                                    cstr = str(col[0]) if isinstance(col, tuple) else str(col)
-                                    if '姓名' in cstr: name_c = col
-                                    elif '考号' in cstr or '学号' in cstr: id_c = col
-                                    elif '班级' in cstr: cls_c = col
-                                    
-                                k_stats = {}
-                                for col in df_diag.columns:
-                                    if col in [name_c, id_c, cls_c]: continue
-                                    cstr = str(col[0]) if isinstance(col, tuple) else str(col)
-                                    if '总分' in cstr or '排名' in cstr: continue
-                                    
-                                    q_name = str(col[0]).strip() if isinstance(col, tuple) else str(col).strip()
-                                    kp = str(col[1]).strip() if isinstance(col, tuple) and len(col) > 1 else q_name
-                                    if kp == "" or kp.startswith("Unnamed"): kp = q_name
-                                    
-                                    try: full = float(col[2]) if isinstance(col, tuple) and len(col) > 2 else 0
-                                    except: full = 0
-                                    
-                                    if full <= 0:
-                                        try: full = float(pd.to_numeric(df_diag[col], errors='coerce').max())
-                                        except: full = 0
-                                        
-                                    if full > 0:
-                                        if kp not in k_stats: k_stats[kp] = []
-                                        k_stats[kp].append(pd.to_numeric(df_diag[col], errors='coerce').mean() / full)
-                                        
-                                if k_stats:
-                                    k_final = [{"知识点": kp, "掌握率": round(sum(rates)/len(rates)*100, 1)} for kp, rates in k_stats.items()]
-                                    df_k = pd.DataFrame(k_final).sort_values("掌握率")
-                                    fig_k = px.bar(df_k, x="掌握率", y="知识点", orientation='h')
-                                    fig_k.update_layout(dragmode=False)
-                                    st.plotly_chart(fig_k, use_container_width=True, config=CHART_CONFIG)
-                                    
-                                    if AI_API_KEY and st.button("✨ 提取专家 AI 教研建议", type="primary"):
-                                        with st.spinner("AI 正在云端调取报告..."):
-                                            st.markdown(f"<div class='ai-box'>{get_ai_advice_for_teacher(subject, '、'.join(df_k.head(3)['知识点'].tolist()))}</div>", unsafe_allow_html=True)
                     else: st.warning(f"当前群体的考试中未找到您的学科【{subject}】。")
                 
                 # --- 教务处 & 班主任视角 ---
@@ -661,7 +611,6 @@ elif selected_nav == "教师后台":
                     
                     st.markdown("#### 📋 学生全科成绩明细表")
                     cols = df_filtered.columns.tolist()
-                    # 明确展示为总分排名
                     front_cols = ['姓名', '考号', '班级', '总分', '总分年级排名', '总分班级排名', '方向']
                     other_cols = [c for c in cols if c not in front_cols]
                     table_to_show = df_filtered[front_cols + other_cols].sort_values(by=['班级', '总分'], ascending=[True, False])
@@ -671,5 +620,124 @@ elif selected_nav == "教师后台":
                     excel_title = f"【{LATEST_EXAM['name']}】{adm_direction}成绩汇总单"
                     file_data, file_name, mime_type = generate_excel_download(table_to_show, f"{LATEST_EXAM['name']}_{adm_direction}成绩汇总单", excel_title)
                     st.download_button(label="📥 一键下载精美 Excel 成绩单", data=file_data, file_name=file_name, mime=mime_type, type="primary")
+
+                # ==========================================================
+                # 🌟 终极神技：个人历次成绩档案智能搜索追踪系统！
+                # ==========================================================
+                st.divider()
+                st.markdown("#### 🔍 个人历次成绩档案检索")
+                st.info("💡 在下方下拉框中搜索或选择学生姓名，即可一键调取该生所有历史考试的成绩波动轨迹！")
+                
+                # 生成供老师选择的学生名单 (姓名 + 考号 + 班级)
+                student_options = df_filtered.apply(lambda x: f"{x['班级']} | {x['姓名']} | 考号:{x['考号']}", axis=1).tolist()
+                
+                if student_options:
+                    sel_student_str = st.selectbox("请搜索或选择目标学生：", ["-- 请选择学生 --"] + student_options)
                     
+                    if sel_student_str != "-- 请选择学生 --":
+                        sel_id = clean_str(sel_student_str.split("考号:")[1].strip())
+                        sel_name = sel_student_str.split("|")[1].strip()
+                        
+                        history_records = []
+                        with st.spinner(f"正在云端数据库检索【{sel_name}】的历次考试档案..."):
+                            for i, exam in enumerate(EXAMS):
+                                m_df = build_master_df(i)
+                                if m_df is not None and not m_df.empty:
+                                    stu_h = m_df[m_df['考号'] == sel_id]
+                                    if not stu_h.empty:
+                                        row = stu_h.iloc[0]
+                                        rec = {"考试名称": exam['name']}
+                                        
+                                        if '总分' in row: rec['总分'] = float(row['总分'])
+                                        if '总分年级排名' in row: rec['年级排名'] = int(row['总分年级排名'])
+                                        
+                                        for s in ['语文','数学','英语','物理','化学','生物','历史','政治','地理']:
+                                            if s in row and pd.notna(row[s]):
+                                                rec[s] = float(row[s])
+                                        history_records.append(rec)
+                                        
+                        if history_records:
+                            df_hist = pd.DataFrame(history_records)
+                            
+                            # 任课教师视角：只出单科折线图
+                            if role == "任课教师":
+                                if subject in df_hist.columns:
+                                    fig = px.line(df_hist, x="考试名称", y=subject, markers=True, title=f"【{sel_name}】{subject} 历次成绩走势", line_shape="spline")
+                                    fig.update_traces(line_color="#FF4B4B", marker=dict(size=10))
+                                    fig.update_layout(dragmode=False)
+                                    st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
+                                else:
+                                    st.warning(f"未检索到该生【{subject}】的历史成绩。")
+                                    
+                            # 班主任/教务处视角：出总分、排名、还能自由挑单科
+                            else:
+                                t_col1, t_col2 = st.columns(2)
+                                with t_col1:
+                                    if "总分" in df_hist.columns:
+                                        fig1 = px.line(df_hist, x="考试名称", y="总分", markers=True, title=f"【{sel_name}】历次总分走势", line_shape="spline")
+                                        fig1.update_traces(line_color="#FF4B4B", marker=dict(size=10))
+                                        fig1.update_layout(dragmode=False)
+                                        st.plotly_chart(fig1, use_container_width=True, config=CHART_CONFIG)
+                                with t_col2:
+                                    if "年级排名" in df_hist.columns:
+                                        fig2 = px.line(df_hist, x="考试名称", y="年级排名", markers=True, title=f"【{sel_name}】历次总分年级排名走势", line_shape="spline")
+                                        fig2.update_traces(line_color="#0068C9", marker=dict(size=10))
+                                        fig2.update_yaxes(autorange="reversed")
+                                        fig2.update_layout(dragmode=False)
+                                        st.plotly_chart(fig2, use_container_width=True, config=CHART_CONFIG)
+                                
+                                st.markdown("##### 🔬 该生单科历史透视")
+                                avail_hist_subs = [s for s in ['语文','数学','英语','物理','化学','生物','历史','政治','地理'] if s in df_hist.columns]
+                                if avail_hist_subs:
+                                    sel_hist_sub = st.selectbox("选择要查看的单科：", avail_hist_subs, key="hist_sub")
+                                    fig3 = px.line(df_hist, x="考试名称", y=sel_hist_sub, markers=True, title=f"【{sel_name}】{sel_hist_sub} 历次成绩走势", line_shape="spline")
+                                    fig3.update_traces(line_color="#10B981", marker=dict(size=10))
+                                    fig3.update_layout(dragmode=False)
+                                    st.plotly_chart(fig3, use_container_width=True, config=CHART_CONFIG)
+                        else:
+                            st.info("暂未抓取到该生的历史轨迹。")
+                            
+                # AI教研 (仅老师)
+                if role == "任课教师" and LATEST_EXAM.get(subject):
+                    st.divider()
+                    st.markdown(f"#### 🧠 【{subject}】底层共性诊断与 AI 教研")
+                    df_diag = load_data(LATEST_EXAM[subject], header_lines=[0, 1, 2])
+                    if df_diag is not None:
+                        name_c, id_c, cls_c = None, None, None
+                        for col in df_diag.columns:
+                            cstr = str(col[0]) if isinstance(col, tuple) else str(col)
+                            if '姓名' in cstr: name_c = col
+                            elif '考号' in cstr or '学号' in cstr: id_c = col
+                            elif '班级' in cstr: cls_c = col
+                            
+                        k_stats = {}
+                        for col in df_diag.columns:
+                            if col in [name_c, id_c, cls_c]: continue
+                            cstr = str(col[0]) if isinstance(col, tuple) else str(col)
+                            if '总分' in cstr or '排名' in cstr: continue
+                            
+                            q_name = str(col[0]).strip() if isinstance(col, tuple) else str(col).strip()
+                            kp = str(col[1]).strip() if isinstance(col, tuple) and len(col) > 1 else q_name
+                            if kp == "" or kp.startswith("Unnamed"): kp = q_name
+                            
+                            try: full = float(col[2]) if isinstance(col, tuple) and len(col) > 2 else 0
+                            except: full = 0
+                            if full <= 0:
+                                try: full = float(pd.to_numeric(df_diag[col], errors='coerce').max())
+                                except: full = 0
+                                
+                            if full > 0:
+                                if kp not in k_stats: k_stats[kp] = []
+                                k_stats[kp].append(pd.to_numeric(df_diag[col], errors='coerce').mean() / full)
+                                
+                        if k_stats:
+                            k_final = [{"知识点": kp, "掌握率": round(sum(rates)/len(rates)*100, 1)} for kp, rates in k_stats.items()]
+                            df_k = pd.DataFrame(k_final).sort_values("掌握率")
+                            fig_k = px.bar(df_k, x="掌握率", y="知识点", orientation='h')
+                            fig_k.update_layout(dragmode=False)
+                            st.plotly_chart(fig_k, use_container_width=True, config=CHART_CONFIG)
+                            
+                            if AI_API_KEY and st.button("✨ 提取专家 AI 教研建议", type="primary"):
+                                with st.spinner("AI 正在云端调取报告..."):
+                                    st.markdown(f"<div class='ai-box'>{get_ai_advice_for_teacher(subject, '、'.join(df_k.head(3)['知识点'].tolist()))}</div>", unsafe_allow_html=True)
             else: st.warning("⚠️ 在当前选择的群体中，未找到您的授权班级数据。")
