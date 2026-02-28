@@ -6,3 +6,4 @@ openai
 altair<5.0.0
 streamlit
 openpyxl
+python-docx

@@ -52,7 +52,7 @@ if AI_API_KEY: client = openai.OpenAI(api_key=AI_API_KEY, base_url="https://api.
 else: client = None
 
 # ==============================================================================
-# 🛠️ 核心引擎：数据净化、班级名统一、总分聚合及【双排名计算】
+# 🛠️ 核心引擎：数据净化、班级名统一、总分聚合
 # ==============================================================================
 def clean_str(val):
     if pd.isna(val): return ""
@@ -131,8 +131,8 @@ def build_master_df(exam_idx):
         return "综合方向"
     master['方向'] = master.apply(get_dir, axis=1)
     
-    master['班级排名'] = master.groupby(['班级', '方向'])['总分'].rank(ascending=False, method='min').fillna(0).astype(int)
-    master['年级排名'] = master.groupby(['方向'])['总分'].rank(ascending=False, method='min').fillna(0).astype(int)
+    master['总分班级排名'] = master.groupby(['班级', '方向'])['总分'].rank(ascending=False, method='min').fillna(0).astype(int)
+    master['总分年级排名'] = master.groupby(['方向'])['总分'].rank(ascending=False, method='min').fillna(0).astype(int)
     return master
 
 # ==============================================================================
@@ -147,7 +147,6 @@ def render_html_table(df):
     for col in df.columns:
         html += f"<th style='background-color: #0068C9; color: white; padding: 18px 12px; border: 1px solid #e1e4e8; white-space: nowrap; font-weight: bold;'>{col}</th>"
     html += "</tr>"
-    
     for i, row in df.iterrows():
         bg_color = "#F8FAFC" if i % 2 == 0 else "#FFFFFF"
         html += f"<tr style='background-color: {bg_color}; transition: background-color 0.2s;' onmouseover=\"this.style.backgroundColor='#E6F3FF'\" onmouseout=\"this.style.backgroundColor='{bg_color}'\">"
@@ -166,7 +165,6 @@ def generate_excel_download(df, filename_prefix, title_text):
     try:
         from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
         from openpyxl.utils import get_column_letter
-        
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
             df.to_excel(writer, index=False, sheet_name='成绩明细', startrow=1)
@@ -190,23 +188,19 @@ def generate_excel_download(df, filename_prefix, title_text):
             for col_idx in range(1, num_cols + 1):
                 col_letter = get_column_letter(col_idx)
                 max_len = sum(2 if ord(c)>127 else 1 for c in str(df.columns[col_idx-1]))
-                
                 for row_idx in range(2, len(df) + 3):
                     cell = worksheet.cell(row=row_idx, column=col_idx)
                     cell.alignment = Alignment(horizontal="center", vertical="center")
                     cell.border = thin_border
-                    
                     if row_idx == 2:
                         cell.fill = header_fill
                         cell.font = header_font
                     else:
                         cell.fill = even_fill if row_idx % 2 == 0 else odd_fill
                         cell.font = Font(size=11)
-                        
                     val_str = str(cell.value) if cell.value is not None else ""
                     val_len = sum(2 if ord(c)>127 else 1 for c in val_str)
                     if val_len > max_len: max_len = val_len
-                        
                 worksheet.column_dimensions[col_letter].width = max_len + 4
 
             for row_idx in range(2, len(df) + 3):
@@ -217,27 +211,25 @@ def generate_excel_download(df, filename_prefix, title_text):
         return df.to_csv(index=False).encode('utf-8-sig'), f"{filename_prefix}.csv", "text/csv"
 
 # ==============================================================================
-# 📥 导出神器 2：AI 报告生成器 (优先Word，保底TXT)
+# 📥 导出神器 2：AI 报告生成器 (优先生成高大上 Word，保底 TXT)
 # ==============================================================================
 def generate_ai_doc(title, content):
     try:
         import docx
-        from docx.shared import Pt
         doc = docx.Document()
         doc.add_heading(title, level=1)
         for para in content.split('\n'):
             if para.strip():
-                p = doc.add_paragraph(para.strip())
+                doc.add_paragraph(para.strip())
         buffer = io.BytesIO()
         doc.save(buffer)
         return buffer.getvalue(), f"{title}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     except:
-        # 保底降级为 TXT
         text_content = f"【{title}】\n\n{content}"
         return text_content.encode('utf-8-sig'), f"{title}.txt", "text/plain"
 
 # ==============================================================================
-# 🧠 AI 导师功能定义
+# 🧠 AI 导师功能定义 (🔴 新增：教师群像精准聚类分析)
 # ==============================================================================
 @st.cache_data(ttl=2592000, show_spinner=False)
 def get_ai_advice_for_student(student_name, subject, weak_points, strong_points):
@@ -249,11 +241,22 @@ def get_ai_advice_for_student(student_name, subject, weak_points, strong_points)
     except: return "AI 生成失败"
 
 @st.cache_data(ttl=2592000, show_spinner=False)
-def get_ai_advice_for_teacher(subject, weak_points_list):
+def get_ai_grouped_advice_for_teacher(subject, grouped_data_str):
     if not client: return "⚠️ AI 尚未配置。"
-    prompt = f"你是教研员。高三年级{subject}薄弱点是：{weak_points_list}。给老师们写约300字的讲评教研建议。"
+    prompt = f"""你是资深的高中{subject}教研专家。
+以下是我所带班级在本次考试中，各个薄弱知识点及对应的具体学生名单（仅列出了得分率不足 60% 的学生）：
+
+{grouped_data_str}
+
+请你基于以上真实数据，为我生成一份「精准靶向辅导与分层教学报告」。
+要求：
+1. 不要说空话，直接针对上述出现的薄弱点进行归类分析。
+2. 分析这些学生为什么会在这个知识点上失分（可能的错因）。
+3. 给出具体的补救和教学措施。
+4. 必须在建议中自然地提及对应的学生名字（例如：“针对滑动摩擦力问题，建议重点抓杨浩群、褚博等同学的受力分析图...”），让这份报告具有极强的落地实操性。
+"""
     try:
-        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是教研专家AI。"}, {"role": "user", "content": prompt}])
+        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是精准教研专家AI。"}, {"role": "user", "content": prompt}])
         return res.choices[0].message.content
     except: return "AI 生成失败"
 
@@ -282,7 +285,7 @@ st.markdown("""
     div[data-testid="stFormSubmitButton"] > button { background-color: #0068C9; color: white; font-weight: bold; border-radius: 8px; border: none; padding: 10px 0; }
     .congrats-banner { background: linear-gradient(90deg, #FFFBEB, #FFF7ED); border: 2px solid #FCD34D; color: #92400E; padding: 12px 20px; border-radius: 12px; text-align: center; font-size: 18px; font-weight: bold; margin-bottom: 25px; box-shadow: 0 4px 12px rgba(252, 211, 77, 0.2); line-height: 1.6; }
     .main-title { text-align: center; color: #1E3A8A; font-size: 28px; font-weight: 800; margin-bottom: 15px; }
-    .ai-box { background: linear-gradient(135deg, #f0f7ff 0%, #e6f3ff 100%); border-left: 5px solid #0068C9; padding: 20px; border-radius: 8px; font-size: 15px; color: #333; line-height: 1.8;}
+    .ai-box { background: linear-gradient(135deg, #f0f7ff 0%, #e6f3ff 100%); border-left: 5px solid #0068C9; padding: 25px; border-radius: 12px; font-size: 16px; color: #333; line-height: 1.8; box-shadow: 0 4px 15px rgba(0,104,201,0.1);}
 </style>
 """, unsafe_allow_html=True)
 
@@ -489,23 +492,25 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                                 
                                 st.divider()
                                 
-                                # ================== 🔴 学生端 AI 分析与导出 ==================
+                                # 🔴 锁定会话状态，防止网页刷新导致 AI 报告消失
                                 ai_state_key = f"ai_stu_{st.session_state.logged_in_id}_{sel_sub}"
                                 if AI_API_KEY:
                                     if st.button(f"✨ 提取专家 AI 提分建议", type="primary"):
-                                        st.session_state[ai_state_key] = True
-
-                                    if st.session_state.get(ai_state_key, False):
                                         with st.spinner("AI 导师正在云端调取档案..."):
                                             w_str = "、".join(weak_points_list) if weak_points_list else "无"
                                             s_str = "、".join(strong_points_list) if strong_points_list else "无"
                                             ai_reply = get_ai_advice_for_student(st.session_state.logged_in_student, sel_sub, w_str, s_str)
-                                            
-                                            st.markdown(f"<div class='ai-box'><b>AI导师：</b><br><br>{ai_reply}</div>", unsafe_allow_html=True)
-                                            
-                                            doc_title = f"{st.session_state.logged_in_student}_{sel_sub}_AI提分计划"
-                                            file_data, file_name, mime_type = generate_ai_doc(doc_title, ai_reply)
-                                            st.download_button(label="📥 一键保存 AI 分析报告 (支持 Word/TXT)", data=file_data, file_name=file_name, mime=mime_type)
+                                            # 把结果永久保存在当前会话里
+                                            st.session_state[ai_state_key] = ai_reply
+
+                                    # 只要会话里有结果，就一直显示报告和下载按钮
+                                    if ai_state_key in st.session_state:
+                                        saved_reply = st.session_state[ai_state_key]
+                                        st.markdown(f"<div class='ai-box'><b>👨‍🏫 AI导师：</b><br><br>{saved_reply}</div><br>", unsafe_allow_html=True)
+                                        
+                                        doc_title = f"{st.session_state.logged_in_student}_{sel_sub}_专属提分计划"
+                                        file_data, file_name, mime_type = generate_ai_doc(doc_title, saved_reply)
+                                        st.download_button(label="📥 一键保存 AI 分析报告 (支持 Word/TXT)", data=file_data, file_name=file_name, mime=mime_type)
 
 # ==============================================================================
 # 🚀 页面逻辑：教师后台 
@@ -624,16 +629,18 @@ elif selected_nav == "教师后台":
                         df_filtered[f'{subject}年级排名'] = df_filtered[subject].rank(ascending=False, method='min').fillna(0).astype(int)
 
                         table_to_show = df_filtered[['姓名', '考号', '班级', f'{subject}年级排名', f'{subject}班级排名', subject]].sort_values(by=subject, ascending=False)
-                        
                         render_html_table(table_to_show)
                         
                         excel_title = f"【{LATEST_EXAM['name']}】{subject}成绩单"
                         file_data, file_name, mime_type = generate_excel_download(table_to_show, f"{LATEST_EXAM['name']}_{subject}成绩单", excel_title)
                         st.download_button(label="📥 一键下载精美 Excel 成绩单", data=file_data, file_name=file_name, mime=mime_type, type="primary")
                         
+                        # ==========================================================
+                        # 🔴 教师端核心升级：群体学生薄弱点精准【聚类分析】
+                        # ==========================================================
                         if LATEST_EXAM.get(subject):
                             st.divider()
-                            st.markdown(f"#### 🧠 【{subject}】底层共性诊断与 AI 教研")
+                            st.markdown(f"#### 🧠 【{subject}】底层错因诊断与 AI 靶向辅导规划")
                             df_diag = load_data(LATEST_EXAM[subject], header_lines=[0, 1, 2])
                             if df_diag is not None:
                                 name_c, id_c, cls_c = None, None, None
@@ -642,49 +649,82 @@ elif selected_nav == "教师后台":
                                     if '姓名' in cstr: name_c = col
                                     elif '考号' in cstr or '学号' in cstr: id_c = col
                                     elif '班级' in cstr: cls_c = col
+                                
+                                if name_c and cls_c:
+                                    # 先精确筛选出该老师教的班级的学生名单
+                                    def is_my_class(c_val):
+                                        c1 = normalize_class_name(c_val)
+                                        for my_c in my_classes:
+                                            if my_c in c1 or c1 in my_c: return True
+                                        return False
                                     
-                                k_stats = {}
-                                for col in df_diag.columns:
-                                    if col in [name_c, id_c, cls_c]: continue
-                                    cstr = str(col[0]) if isinstance(col, tuple) else str(col)
-                                    if '总分' in cstr or '排名' in cstr: continue
+                                    # 只保留老师自己班的数据
+                                    df_diag_my = df_diag[df_diag[cls_c].apply(is_my_class)]
                                     
-                                    q_name = str(col[0]).strip() if isinstance(col, tuple) else str(col).strip()
-                                    kp = str(col[1]).strip() if isinstance(col, tuple) and len(col) > 1 else q_name
-                                    if kp == "" or kp.startswith("Unnamed"): kp = q_name
-                                    
-                                    try: full = float(col[2]) if isinstance(col, tuple) and len(col) > 2 else 0
-                                    except: full = 0
-                                    
-                                    if full <= 0:
-                                        try: full = float(pd.to_numeric(df_diag[col], errors='coerce').max())
-                                        except: full = 0
+                                    if not df_diag_my.empty:
+                                        k_stats = {}
+                                        weak_group_map = {} # 新增：用于存放【知识点 -> 没考好的学生名单】
                                         
-                                    if full > 0:
-                                        if kp not in k_stats: k_stats[kp] = []
-                                        k_stats[kp].append(pd.to_numeric(df_diag[col], errors='coerce').mean() / full)
-                                        
-                                if k_stats:
-                                    k_final = [{"知识点": kp, "掌握率": round(sum(rates)/len(rates)*100, 1)} for kp, rates in k_stats.items()]
-                                    df_k = pd.DataFrame(k_final).sort_values("掌握率")
-                                    fig_k = px.bar(df_k, x="掌握率", y="知识点", orientation='h')
-                                    fig_k.update_layout(dragmode=False)
-                                    st.plotly_chart(fig_k, use_container_width=True, config=CHART_CONFIG)
-                                    
-                                    # ================== 🔴 教师端 AI 分析与导出 ==================
-                                    ai_t_key = f"ai_tea_{subject}"
-                                    if AI_API_KEY:
-                                        if st.button("✨ 提取专家 AI 教研建议", type="primary"):
-                                            st.session_state[ai_t_key] = True
-
-                                        if st.session_state.get(ai_t_key, False):
-                                            with st.spinner("AI 正在云端调取报告..."):
-                                                ai_reply = get_ai_advice_for_teacher(subject, '、'.join(df_k.head(3)['知识点'].tolist()))
-                                                st.markdown(f"<div class='ai-box'>{ai_reply}</div>", unsafe_allow_html=True)
+                                        for col in df_diag_my.columns:
+                                            if col in [name_c, id_c, cls_c]: continue
+                                            cstr = str(col[0]) if isinstance(col, tuple) else str(col)
+                                            if '总分' in cstr or '排名' in cstr: continue
+                                            
+                                            q_name = str(col[0]).strip() if isinstance(col, tuple) else str(col).strip()
+                                            kp = str(col[1]).strip() if isinstance(col, tuple) and len(col) > 1 else q_name
+                                            if kp == "" or kp.startswith("Unnamed"): kp = q_name
+                                            
+                                            try: full = float(col[2]) if isinstance(col, tuple) and len(col) > 2 else 0
+                                            except: full = 0
+                                            if full <= 0:
+                                                try: full = float(pd.to_numeric(df_diag_my[col], errors='coerce').max())
+                                                except: full = 0
                                                 
-                                                doc_title = f"【{LATEST_EXAM['name']}】{subject}学科_AI教研指导报告"
-                                                file_data, file_name, mime_type = generate_ai_doc(doc_title, ai_reply)
-                                                st.download_button(label="📥 一键保存 AI 教研报告 (支持 Word/TXT)", data=file_data, file_name=file_name, mime=mime_type)
+                                            if full > 0:
+                                                # 计算全班平均掌握率
+                                                if kp not in k_stats: k_stats[kp] = []
+                                                k_stats[kp].append(pd.to_numeric(df_diag_my[col], errors='coerce').mean() / full)
+                                                
+                                                # 🔴 核心筛选逻辑：揪出得分率低于 60% 的薄弱学生
+                                                for _, row in df_diag_my.iterrows():
+                                                    stu_n = clean_name(row[name_c])
+                                                    try: score = float(row[col])
+                                                    except: score = 0
+                                                    if score < full * 0.6: # 得分率不足60%即为薄弱
+                                                        if kp not in weak_group_map: weak_group_map[kp] = []
+                                                        if stu_n and stu_n not in weak_group_map[kp]:
+                                                            weak_group_map[kp].append(stu_n)
+                                                
+                                        if k_stats:
+                                            # 画出班级均分条形图
+                                            k_final = [{"知识点": kp, "班级整体掌握率": round(sum(rates)/len(rates)*100, 1)} for kp, rates in k_stats.items()]
+                                            df_k = pd.DataFrame(k_final).sort_values("班级整体掌握率")
+                                            fig_k = px.bar(df_k, x="班级整体掌握率", y="知识点", orientation='h')
+                                            fig_k.update_layout(dragmode=False)
+                                            st.plotly_chart(fig_k, use_container_width=True, config=CHART_CONFIG)
+                                            
+                                            # 整理供 AI 阅读的靶向名单 (按薄弱人数多少排序，抓出前5个最差的知识点)
+                                            sorted_weak_kps = sorted(weak_group_map.items(), key=lambda x: len(x[1]), reverse=True)
+                                            grouped_str_list = []
+                                            for kp, students in sorted_weak_kps[:5]:
+                                                if students: grouped_str_list.append(f"【{kp}】得分率<60%的薄弱名单（需重点关注）：{', '.join(students)}")
+                                            grouped_data_str = "\n".join(grouped_str_list)
+                                            
+                                            # 触发 AI 生成聚类分析报告
+                                            ai_t_key = f"ai_tea_{name}_{subject}"
+                                            if AI_API_KEY:
+                                                if st.button("✨ 智能生成【分层教学与靶向辅导报告】", type="primary"):
+                                                    with st.spinner("AI 正在深度剖析每个学生的单题得分，进行聚类分析..."):
+                                                        ai_reply = get_ai_grouped_advice_for_teacher(subject, grouped_data_str)
+                                                        st.session_state[ai_t_key] = ai_reply
+
+                                                if ai_t_key in st.session_state:
+                                                    saved_reply = st.session_state[ai_t_key]
+                                                    st.markdown(f"<div class='ai-box'><b>👨‍🏫 教学指导 AI：</b><br><br>{saved_reply}</div><br>", unsafe_allow_html=True)
+                                                    
+                                                    doc_title = f"【{LATEST_EXAM['name']}】{subject}学科_分层辅导教研报告"
+                                                    file_data, file_name, mime_type = generate_ai_doc(doc_title, saved_reply)
+                                                    st.download_button(label="📥 一键导出 AI 教研报告 (支持打印分享)", data=file_data, file_name=file_name, mime=mime_type)
 
                     else: st.warning(f"当前群体的考试中未找到您的学科【{subject}】。")
                 
