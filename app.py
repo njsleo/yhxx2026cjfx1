@@ -202,34 +202,70 @@ def generate_excel_download(df, filename_prefix, title_text):
                     val_len = sum(2 if ord(c)>127 else 1 for c in val_str)
                     if val_len > max_len: max_len = val_len
                 worksheet.column_dimensions[col_letter].width = max_len + 4
-
             for row_idx in range(2, len(df) + 3):
                 worksheet.row_dimensions[row_idx].height = 25
-
         return buffer.getvalue(), f"{filename_prefix}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     except Exception as e:
         return df.to_csv(index=False).encode('utf-8-sig'), f"{filename_prefix}.csv", "text/csv"
 
 # ==============================================================================
-# 📥 导出神器 2：AI 报告生成器 (优先生成高大上 Word，保底 TXT)
+# 📥 导出神器 2：精装版 AI Word 报告生成器 (彻底修复 Markdown 乱码格式)
 # ==============================================================================
 def generate_ai_doc(title, content):
     try:
         import docx
         doc = docx.Document()
         doc.add_heading(title, level=1)
-        for para in content.split('\n'):
-            if para.strip():
-                doc.add_paragraph(para.strip())
+        
+        # 智能子函数：解析同一段落中的 **加粗文字**
+        def add_runs_to_paragraph(p, text):
+            # 用正则把文本按照 **...** 切成碎块
+            parts = re.split(r'(\*\*.*?\*\*)', text)
+            for part in parts:
+                if part.startswith('**') and part.endswith('**'):
+                    # 剥掉外层的星星，然后把内容加粗
+                    p.add_run(part[2:-2]).bold = True
+                else:
+                    p.add_run(part)
+
+        lines = content.split('\n')
+        for line in lines:
+            line = line.strip()
+            if not line: continue
+            
+            # 1. 解析大标题 (### 等等)
+            if line.startswith('#'):
+                # 数一数有几个井号
+                level = 0
+                while level < len(line) and line[level] == '#':
+                    level += 1
+                text = line[level:].strip()
+                level = min(level, 6) # Word最多支持6级标题
+                # 添加真实的Word标题，并支持标题内加粗
+                h = doc.add_heading('', level=level)
+                add_runs_to_paragraph(h, text)
+            
+            # 2. 解析无序列表 (小黑点 Bullet Points)
+            elif line.startswith('- ') or line.startswith('* '):
+                text = line[2:].strip()
+                p = doc.add_paragraph(style='List Bullet')
+                add_runs_to_paragraph(p, text)
+                
+            # 3. 普通正文段落 (也支持行内加粗)
+            else:
+                p = doc.add_paragraph()
+                add_runs_to_paragraph(p, line)
+
         buffer = io.BytesIO()
         doc.save(buffer)
         return buffer.getvalue(), f"{title}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     except:
+        # 万一系统没装 docx 库，保底降级为 TXT，绝不崩溃
         text_content = f"【{title}】\n\n{content}"
         return text_content.encode('utf-8-sig'), f"{title}.txt", "text/plain"
 
 # ==============================================================================
-# 🧠 AI 导师功能定义 (🔴 新增：教师群像精准聚类分析)
+# 🧠 AI 导师功能定义 (精准靶向辅导)
 # ==============================================================================
 @st.cache_data(ttl=2592000, show_spinner=False)
 def get_ai_advice_for_student(student_name, subject, weak_points, strong_points):
@@ -253,7 +289,7 @@ def get_ai_grouped_advice_for_teacher(subject, grouped_data_str):
 1. 不要说空话，直接针对上述出现的薄弱点进行归类分析。
 2. 分析这些学生为什么会在这个知识点上失分（可能的错因）。
 3. 给出具体的补救和教学措施。
-4. 必须在建议中自然地提及对应的学生名字（例如：“针对滑动摩擦力问题，建议重点抓杨浩群、褚博等同学的受力分析图...”），让这份报告具有极强的落地实操性。
+4. 必须在建议中自然地提及对应的学生名字，让这份报告具有极强的落地实操性。
 """
     try:
         res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是精准教研专家AI。"}, {"role": "user", "content": prompt}])
@@ -492,7 +528,6 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                                 
                                 st.divider()
                                 
-                                # 🔴 锁定会话状态，防止网页刷新导致 AI 报告消失
                                 ai_state_key = f"ai_stu_{st.session_state.logged_in_id}_{sel_sub}"
                                 if AI_API_KEY:
                                     if st.button(f"✨ 提取专家 AI 提分建议", type="primary"):
@@ -500,17 +535,15 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                                             w_str = "、".join(weak_points_list) if weak_points_list else "无"
                                             s_str = "、".join(strong_points_list) if strong_points_list else "无"
                                             ai_reply = get_ai_advice_for_student(st.session_state.logged_in_student, sel_sub, w_str, s_str)
-                                            # 把结果永久保存在当前会话里
                                             st.session_state[ai_state_key] = ai_reply
 
-                                    # 只要会话里有结果，就一直显示报告和下载按钮
                                     if ai_state_key in st.session_state:
                                         saved_reply = st.session_state[ai_state_key]
                                         st.markdown(f"<div class='ai-box'><b>👨‍🏫 AI导师：</b><br><br>{saved_reply}</div><br>", unsafe_allow_html=True)
                                         
                                         doc_title = f"{st.session_state.logged_in_student}_{sel_sub}_专属提分计划"
                                         file_data, file_name, mime_type = generate_ai_doc(doc_title, saved_reply)
-                                        st.download_button(label="📥 一键保存 AI 分析报告 (支持 Word/TXT)", data=file_data, file_name=file_name, mime=mime_type)
+                                        st.download_button(label="📥 一键保存精美排版 AI 报告 (Word格式)", data=file_data, file_name=file_name, mime=mime_type)
 
 # ==============================================================================
 # 🚀 页面逻辑：教师后台 
@@ -616,7 +649,6 @@ elif selected_nav == "教师后台":
 
                 st.markdown(f"#### 📊 【{LATEST_EXAM['name']}】学情分析图表")
 
-                # --- 🔴 任课教师视角 ---
                 if role == "任课教师":
                     if subject in df_filtered.columns:
                         class_avg = df_filtered.groupby('班级')[subject].mean().round(1).reset_index()
@@ -635,9 +667,6 @@ elif selected_nav == "教师后台":
                         file_data, file_name, mime_type = generate_excel_download(table_to_show, f"{LATEST_EXAM['name']}_{subject}成绩单", excel_title)
                         st.download_button(label="📥 一键下载精美 Excel 成绩单", data=file_data, file_name=file_name, mime=mime_type, type="primary")
                         
-                        # ==========================================================
-                        # 🔴 教师端核心升级：群体学生薄弱点精准【聚类分析】
-                        # ==========================================================
                         if LATEST_EXAM.get(subject):
                             st.divider()
                             st.markdown(f"#### 🧠 【{subject}】底层错因诊断与 AI 靶向辅导规划")
@@ -651,19 +680,17 @@ elif selected_nav == "教师后台":
                                     elif '班级' in cstr: cls_c = col
                                 
                                 if name_c and cls_c:
-                                    # 先精确筛选出该老师教的班级的学生名单
                                     def is_my_class(c_val):
                                         c1 = normalize_class_name(c_val)
                                         for my_c in my_classes:
                                             if my_c in c1 or c1 in my_c: return True
                                         return False
                                     
-                                    # 只保留老师自己班的数据
                                     df_diag_my = df_diag[df_diag[cls_c].apply(is_my_class)]
                                     
                                     if not df_diag_my.empty:
                                         k_stats = {}
-                                        weak_group_map = {} # 新增：用于存放【知识点 -> 没考好的学生名单】
+                                        weak_group_map = {} 
                                         
                                         for col in df_diag_my.columns:
                                             if col in [name_c, id_c, cls_c]: continue
@@ -681,36 +708,31 @@ elif selected_nav == "教师后台":
                                                 except: full = 0
                                                 
                                             if full > 0:
-                                                # 计算全班平均掌握率
                                                 if kp not in k_stats: k_stats[kp] = []
                                                 k_stats[kp].append(pd.to_numeric(df_diag_my[col], errors='coerce').mean() / full)
                                                 
-                                                # 🔴 核心筛选逻辑：揪出得分率低于 60% 的薄弱学生
                                                 for _, row in df_diag_my.iterrows():
                                                     stu_n = clean_name(row[name_c])
                                                     try: score = float(row[col])
                                                     except: score = 0
-                                                    if score < full * 0.6: # 得分率不足60%即为薄弱
+                                                    if score < full * 0.6: 
                                                         if kp not in weak_group_map: weak_group_map[kp] = []
                                                         if stu_n and stu_n not in weak_group_map[kp]:
                                                             weak_group_map[kp].append(stu_n)
                                                 
                                         if k_stats:
-                                            # 画出班级均分条形图
                                             k_final = [{"知识点": kp, "班级整体掌握率": round(sum(rates)/len(rates)*100, 1)} for kp, rates in k_stats.items()]
                                             df_k = pd.DataFrame(k_final).sort_values("班级整体掌握率")
                                             fig_k = px.bar(df_k, x="班级整体掌握率", y="知识点", orientation='h')
                                             fig_k.update_layout(dragmode=False)
                                             st.plotly_chart(fig_k, use_container_width=True, config=CHART_CONFIG)
                                             
-                                            # 整理供 AI 阅读的靶向名单 (按薄弱人数多少排序，抓出前5个最差的知识点)
                                             sorted_weak_kps = sorted(weak_group_map.items(), key=lambda x: len(x[1]), reverse=True)
                                             grouped_str_list = []
                                             for kp, students in sorted_weak_kps[:5]:
                                                 if students: grouped_str_list.append(f"【{kp}】得分率<60%的薄弱名单（需重点关注）：{', '.join(students)}")
                                             grouped_data_str = "\n".join(grouped_str_list)
                                             
-                                            # 触发 AI 生成聚类分析报告
                                             ai_t_key = f"ai_tea_{name}_{subject}"
                                             if AI_API_KEY:
                                                 if st.button("✨ 智能生成【分层教学与靶向辅导报告】", type="primary"):
@@ -724,11 +746,10 @@ elif selected_nav == "教师后台":
                                                     
                                                     doc_title = f"【{LATEST_EXAM['name']}】{subject}学科_分层辅导教研报告"
                                                     file_data, file_name, mime_type = generate_ai_doc(doc_title, saved_reply)
-                                                    st.download_button(label="📥 一键导出 AI 教研报告 (支持打印分享)", data=file_data, file_name=file_name, mime=mime_type)
+                                                    st.download_button(label="📥 一键导出精美排版 AI 教研报告 (Word格式)", data=file_data, file_name=file_name, mime=mime_type)
 
                     else: st.warning(f"当前群体的考试中未找到您的学科【{subject}】。")
                 
-                # --- 教务处 & 班主任视角 ---
                 else:
                     class_avg = df_filtered.groupby('班级')['总分'].mean().round(1).reset_index()
                     fig_bar_tot = px.bar(class_avg, x='班级', y='总分', text_auto=True, title="总分均分对照")
@@ -747,9 +768,6 @@ elif selected_nav == "教师后台":
                     file_data, file_name, mime_type = generate_excel_download(table_to_show, f"{LATEST_EXAM['name']}_{adm_direction}成绩汇总单", excel_title)
                     st.download_button(label="📥 一键下载精美 Excel 成绩单", data=file_data, file_name=file_name, mime=mime_type, type="primary")
 
-                # ==========================================================
-                # 🌟 终极神技：个人历次成绩档案智能搜索追踪系统！
-                # ==========================================================
                 st.divider()
                 st.markdown("#### 🔍 个人历次成绩档案检索")
                 st.info("💡 在下方下拉框中搜索或选择学生姓名，即可一键调取该生所有历史考试的成绩波动轨迹！")
