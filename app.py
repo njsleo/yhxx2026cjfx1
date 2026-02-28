@@ -158,9 +158,6 @@ def render_html_table(df):
     html += "</table></div>"
     st.markdown(html, unsafe_allow_html=True)
 
-# ==============================================================================
-# 📥 导出神器 1：Excel 成绩表生成器
-# ==============================================================================
 def generate_excel_download(df, filename_prefix, title_text):
     try:
         from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
@@ -209,49 +206,61 @@ def generate_excel_download(df, filename_prefix, title_text):
         return df.to_csv(index=False).encode('utf-8-sig'), f"{filename_prefix}.csv", "text/csv"
 
 # ==============================================================================
-# 📥 导出神器 2：精装版 AI Word 报告生成器 (彻底修复 Markdown 乱码格式)
+# 📥 导出神器 2：精装版 AI Word 报告生成器 (🔴 强制开启“仿宋”与“加粗黑体”)
 # ==============================================================================
 def generate_ai_doc(title, content):
     try:
         import docx
-        doc = docx.Document()
-        doc.add_heading(title, level=1)
+        from docx.shared import Pt
+        from docx.oxml.ns import qn
         
-        # 智能子函数：解析同一段落中的 **加粗文字**
+        doc = docx.Document()
+        
+        # --- 强制设置全局默认字体为【仿宋】，字号为【四号 (14pt)】 ---
+        style = doc.styles['Normal']
+        style.font.name = '仿宋'
+        style._element.rPr.rFonts.set(qn('w:eastAsia'), '仿宋')
+        style.font.size = Pt(14)
+        
+        # --- 写入大标题 ---
+        h = doc.add_heading(title, level=1)
+        for run in h.runs:
+            run.font.name = '黑体'
+            run._element.rPr.rFonts.set(qn('w:eastAsia'), '黑体')
+
+        # --- 智能解析 Markdown 加粗并强制应用仿宋 ---
         def add_runs_to_paragraph(p, text):
-            # 用正则把文本按照 **...** 切成碎块
             parts = re.split(r'(\*\*.*?\*\*)', text)
             for part in parts:
                 if part.startswith('**') and part.endswith('**'):
-                    # 剥掉外层的星星，然后把内容加粗
-                    p.add_run(part[2:-2]).bold = True
+                    r = p.add_run(part[2:-2])
+                    r.bold = True
+                    r.font.name = '仿宋'
+                    r._element.rPr.rFonts.set(qn('w:eastAsia'), '仿宋')
                 else:
-                    p.add_run(part)
+                    r = p.add_run(part)
+                    r.font.name = '仿宋'
+                    r._element.rPr.rFonts.set(qn('w:eastAsia'), '仿宋')
 
         lines = content.split('\n')
         for line in lines:
             line = line.strip()
             if not line: continue
             
-            # 1. 解析大标题 (### 等等)
             if line.startswith('#'):
-                # 数一数有几个井号
                 level = 0
-                while level < len(line) and line[level] == '#':
-                    level += 1
+                while level < len(line) and line[level] == '#': level += 1
                 text = line[level:].strip()
-                level = min(level, 6) # Word最多支持6级标题
-                # 添加真实的Word标题，并支持标题内加粗
-                h = doc.add_heading('', level=level)
-                add_runs_to_paragraph(h, text)
-            
-            # 2. 解析无序列表 (小黑点 Bullet Points)
+                p = doc.add_paragraph()
+                r = p.add_run(text)
+                r.bold = True
+                r.font.size = Pt(16) # 小标题用稍微大一点的仿宋
+                r.font.name = '黑体'
+                r._element.rPr.rFonts.set(qn('w:eastAsia'), '黑体')
             elif line.startswith('- ') or line.startswith('* '):
                 text = line[2:].strip()
                 p = doc.add_paragraph(style='List Bullet')
                 add_runs_to_paragraph(p, text)
-                
-            # 3. 普通正文段落 (也支持行内加粗)
             else:
                 p = doc.add_paragraph()
                 add_runs_to_paragraph(p, line)
@@ -260,12 +269,11 @@ def generate_ai_doc(title, content):
         doc.save(buffer)
         return buffer.getvalue(), f"{title}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     except:
-        # 万一系统没装 docx 库，保底降级为 TXT，绝不崩溃
         text_content = f"【{title}】\n\n{content}"
         return text_content.encode('utf-8-sig'), f"{title}.txt", "text/plain"
 
 # ==============================================================================
-# 🧠 AI 导师功能定义 (精准靶向辅导)
+# 🧠 AI 导师功能定义
 # ==============================================================================
 @st.cache_data(ttl=2592000, show_spinner=False)
 def get_ai_advice_for_student(student_name, subject, weak_points, strong_points):
@@ -391,7 +399,6 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
         master_df = build_master_df(LATEST_EXAM_IDX)
         stu_data = master_df[(master_df['姓名'] == st.session_state.logged_in_student) & (master_df['考号'] == st.session_state.logged_in_id)].iloc[0]
         
-        # --- 模块 1: 成绩总览 ---
         if selected_nav == "成绩总览":
             st.markdown(f"### 🏆 【{LATEST_EXAM['name']}】成绩概览")
             k1, k2, k3, k4, k5 = st.columns(5)
@@ -420,7 +427,6 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                     fig2.update_layout(margin=dict(t=40, b=20, l=40, r=40), paper_bgcolor='rgba(0,0,0,0)', dragmode=False)
                     st.plotly_chart(fig2, use_container_width=True, config=CHART_CONFIG)
             
-        # --- 模块 2: 历次追踪 ---
         elif selected_nav == "历次追踪":
             st.markdown(f"### 📈 历次考试波动轨迹")
             history_records = []
@@ -448,7 +454,6 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                     st.plotly_chart(fig_rank, use_container_width=True, config=CHART_CONFIG)
             else: st.info("暂未抓取到您的历史轨迹。")
 
-        # --- 模块 3: 深度诊断 ---
         elif selected_nav == "深度诊断":
             avail_subs = [s for s in ['语文','数学','英语','物理','化学','生物','历史','政治','地理'] if s in stu_data and stu_data[s] > 0 and LATEST_EXAM.get(s)]
             if not avail_subs: st.info("暂未配置您所考科目的详细题库数据。")
@@ -528,7 +533,13 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                                 
                                 st.divider()
                                 
+                                # ================== 🔴 升级版：AI 对比档案与下载 ==================
                                 ai_state_key = f"ai_stu_{st.session_state.logged_in_id}_{sel_sub}"
+                                saved_list_key = f"saved_ai_stu_list_{st.session_state.logged_in_id}_{sel_sub}"
+                                
+                                if saved_list_key not in st.session_state:
+                                    st.session_state[saved_list_key] = []
+
                                 if AI_API_KEY:
                                     if st.button(f"✨ 提取专家 AI 提分建议", type="primary"):
                                         with st.spinner("AI 导师正在云端调取档案..."):
@@ -541,9 +552,31 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                                         saved_reply = st.session_state[ai_state_key]
                                         st.markdown(f"<div class='ai-box'><b>👨‍🏫 AI导师：</b><br><br>{saved_reply}</div><br>", unsafe_allow_html=True)
                                         
+                                        # 工具栏：保存到网页 + 选择格式导出
                                         doc_title = f"{st.session_state.logged_in_student}_{sel_sub}_专属提分计划"
-                                        file_data, file_name, mime_type = generate_ai_doc(doc_title, saved_reply)
-                                        st.download_button(label="📥 一键保存精美排版 AI 报告 (Word格式)", data=file_data, file_name=file_name, mime=mime_type)
+                                        t_c1, t_c2, t_c3 = st.columns([1.5, 1, 1])
+                                        with t_c1:
+                                            if st.button("📌 将此版建议存入网页下方档案库"):
+                                                st.session_state[saved_list_key].insert(0, saved_reply)
+                                                st.toast("✅ 已成功存入下方档案库！")
+                                        with t_c2:
+                                            export_fmt = st.selectbox("导出格式", ["Word (仿宋)", "TXT 纯文本"], label_visibility="collapsed", key="fmt_stu")
+                                        with t_c3:
+                                            if export_fmt == "Word (仿宋)":
+                                                file_data, file_name, mime_type = generate_ai_doc(doc_title, saved_reply)
+                                            else:
+                                                file_data = saved_reply.encode('utf-8-sig')
+                                                file_name = f"{doc_title}.txt"
+                                                mime_type = "text/plain"
+                                            st.download_button(label="📥 导出本地文件", data=file_data, file_name=file_name, mime=mime_type, type="primary")
+
+                                    # 展示历史档案库
+                                    if st.session_state[saved_list_key]:
+                                        with st.expander(f"📂 网页端已暂存的分析报告 (共 {len(st.session_state[saved_list_key])} 份) - 点击对比"):
+                                            for idx, old_rep in enumerate(st.session_state[saved_list_key]):
+                                                st.markdown(f"**🔖 暂存版本 {len(st.session_state[saved_list_key]) - idx}**")
+                                                st.markdown(old_rep)
+                                                st.divider()
 
 # ==============================================================================
 # 🚀 页面逻辑：教师后台 
@@ -733,7 +766,13 @@ elif selected_nav == "教师后台":
                                                 if students: grouped_str_list.append(f"【{kp}】得分率<60%的薄弱名单（需重点关注）：{', '.join(students)}")
                                             grouped_data_str = "\n".join(grouped_str_list)
                                             
+                                            # ================== 🔴 升级版：教师端 AI 对比档案与下载 ==================
                                             ai_t_key = f"ai_tea_{name}_{subject}"
+                                            saved_t_list_key = f"saved_ai_tea_list_{name}_{subject}"
+                                            
+                                            if saved_t_list_key not in st.session_state:
+                                                st.session_state[saved_t_list_key] = []
+
                                             if AI_API_KEY:
                                                 if st.button("✨ 智能生成【分层教学与靶向辅导报告】", type="primary"):
                                                     with st.spinner("AI 正在深度剖析每个学生的单题得分，进行聚类分析..."):
@@ -745,8 +784,31 @@ elif selected_nav == "教师后台":
                                                     st.markdown(f"<div class='ai-box'><b>👨‍🏫 教学指导 AI：</b><br><br>{saved_reply}</div><br>", unsafe_allow_html=True)
                                                     
                                                     doc_title = f"【{LATEST_EXAM['name']}】{subject}学科_分层辅导教研报告"
-                                                    file_data, file_name, mime_type = generate_ai_doc(doc_title, saved_reply)
-                                                    st.download_button(label="📥 一键导出精美排版 AI 教研报告 (Word格式)", data=file_data, file_name=file_name, mime=mime_type)
+                                                    
+                                                    # 工具栏：保存网页 + 导出格式
+                                                    t_c1, t_c2, t_c3 = st.columns([1.5, 1, 1])
+                                                    with t_c1:
+                                                        if st.button("📌 将此版教研报告存入下方档案库"):
+                                                            st.session_state[saved_t_list_key].insert(0, saved_reply)
+                                                            st.toast("✅ 已成功存入网页历史档案库！")
+                                                    with t_c2:
+                                                        export_fmt = st.selectbox("导出格式", ["Word (仿宋)", "TXT 纯文本"], label_visibility="collapsed", key="fmt_tea")
+                                                    with t_c3:
+                                                        if export_fmt == "Word (仿宋)":
+                                                            file_data, file_name, mime_type = generate_ai_doc(doc_title, saved_reply)
+                                                        else:
+                                                            file_data = saved_reply.encode('utf-8-sig')
+                                                            file_name = f"{doc_title}.txt"
+                                                            mime_type = "text/plain"
+                                                        st.download_button(label="📥 导出报告至电脑", data=file_data, file_name=file_name, mime=mime_type, type="primary")
+
+                                                # 展示历史档案库
+                                                if st.session_state[saved_t_list_key]:
+                                                    with st.expander(f"📂 网页端已暂存的教研报告 (共 {len(st.session_state[saved_t_list_key])} 份) - 点击展开"):
+                                                        for idx, old_rep in enumerate(st.session_state[saved_t_list_key]):
+                                                            st.markdown(f"**🔖 暂存版本 {len(st.session_state[saved_t_list_key]) - idx}**")
+                                                            st.markdown(old_rep)
+                                                            st.divider()
 
                     else: st.warning(f"当前群体的考试中未找到您的学科【{subject}】。")
                 
