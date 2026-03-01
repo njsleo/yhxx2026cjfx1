@@ -24,30 +24,32 @@ if selected_grade != st.session_state.current_grade:
     st.rerun()
 
 try:
+    ADMIN_PASSWORD = st.secrets["ADMIN_PWD"]
+    HOMEROOM_PASSWORD = st.secrets.get("HOMEROOM_PWD", ADMIN_PASSWORD) 
+    TEACHER_PASSWORD = st.secrets.get("TEACHER_PWD", ADMIN_PASSWORD)
+    URL_TEACHER_ROSTER = st.secrets.get("URL_TEACHER_ROSTER", "") 
+    URL_EXAM_CONFIG = st.secrets.get("URL_EXAM_CONFIG", "")
     AI_API_KEY = st.secrets.get("DEEPSEEK_API_KEY", "")
-    prefix = "G1_" if selected_grade == "高一" else "G2_" if selected_grade == "高二" else "G3_"
-    
-    def get_sec(sub_key):
-        val = st.secrets.get(f"{prefix}{sub_key}", "")
-        if not val and selected_grade == "高三": val = st.secrets.get(sub_key, "")
-        return val
-
-    EXAMS = []
-    for i in range(1, 21):
-        name = get_sec(f"EXAM_NAME_{i}")
-        if name:
-            EXAMS.append({
-                "name": name, "语文": get_sec(f"URL_CHINESE_{i}"), "数学": get_sec(f"URL_MATH_{i}"),
-                "英语": get_sec(f"URL_ENGLISH_{i}"), "物理": get_sec(f"URL_PHYSICS_{i}"),
-                "化学": get_sec(f"URL_CHEMISTRY_{i}"), "生物": get_sec(f"URL_BIOLOGY_{i}"),
-                "历史": get_sec(f"URL_HISTORY_{i}"), "政治": get_sec(f"URL_POLITICS_{i}"),
-                "地理": get_sec(f"URL_GEOGRAPHY_{i}")
-            })
-    LATEST_EXAM_IDX = len(EXAMS) - 1 if EXAMS else -1
-    LATEST_EXAM = EXAMS[-1] if EXAMS else None
 except Exception as e:
-    st.error("⚠️ 系统配置读取失败，请检查后台 Secrets。")
+    st.error("⚠️ 系统配置读取失败，请检查 Streamlit 后台的 Secrets。")
     st.stop()
+
+if AI_API_KEY: client = openai.OpenAI(api_key=AI_API_KEY, base_url="https://api.deepseek.com")
+else: client = None
+
+# ==============================================================================
+# 👑 核心引擎：动态读取《全校考试总控台》
+# ==============================================================================
+def clean_url(url):
+    if pd.isna(url): return ""
+    u = str(url).strip()
+    if u.lower() == 'nan': return ""
+    return u
+
+@st.cache_data(ttl=300) # 每5分钟去总控表拉取一次最新链接
+def load_exam_config(url):
+    try: return pd.read_csv(url, on_bad_lines='skip')
+    except: return pd.DataFrame()
 
 if AI_API_KEY: client = openai.OpenAI(api_key=AI_API_KEY, base_url="https://api.deepseek.com")
 else: client = None
