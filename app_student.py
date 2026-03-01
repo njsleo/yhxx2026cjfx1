@@ -23,23 +23,19 @@ if selected_grade != st.session_state.current_grade:
         st.session_state[key] = None
     st.rerun()
 
+# ==============================================================================
+# 👑 读取总控台链接与 API
+# ==============================================================================
 try:
-    ADMIN_PASSWORD = st.secrets["ADMIN_PWD"]
-    HOMEROOM_PASSWORD = st.secrets.get("HOMEROOM_PWD", ADMIN_PASSWORD) 
-    TEACHER_PASSWORD = st.secrets.get("TEACHER_PWD", ADMIN_PASSWORD)
-    URL_TEACHER_ROSTER = st.secrets.get("URL_TEACHER_ROSTER", "") 
-    URL_EXAM_CONFIG = st.secrets.get("URL_EXAM_CONFIG", "")
     AI_API_KEY = st.secrets.get("DEEPSEEK_API_KEY", "")
+    URL_EXAM_CONFIG = st.secrets.get("URL_EXAM_CONFIG", "")
 except Exception as e:
-    st.error("⚠️ 系统配置读取失败，请检查 Streamlit 后台的 Secrets。")
+    st.error("⚠️ 系统配置读取失败，请检查后台 Secrets。")
     st.stop()
 
 if AI_API_KEY: client = openai.OpenAI(api_key=AI_API_KEY, base_url="https://api.deepseek.com")
 else: client = None
 
-# ==============================================================================
-# 👑 核心引擎：动态读取《全校考试总控台》
-# ==============================================================================
 def clean_url(url):
     if pd.isna(url): return ""
     u = str(url).strip()
@@ -51,9 +47,31 @@ def load_exam_config(url):
     try: return pd.read_csv(url, on_bad_lines='skip')
     except: return pd.DataFrame()
 
-if AI_API_KEY: client = openai.OpenAI(api_key=AI_API_KEY, base_url="https://api.deepseek.com")
-else: client = None
+config_df = load_exam_config(URL_EXAM_CONFIG)
+EXAMS = []
 
+if not config_df.empty and '年级' in config_df.columns:
+    grade_config = config_df[config_df['年级'].astype(str).str.strip() == selected_grade]
+    for _, row in grade_config.iterrows():
+        EXAMS.append({
+            "name": str(row.get('考试名称', '')).strip(),
+            "语文": clean_url(row.get('语文')),
+            "数学": clean_url(row.get('数学')),
+            "英语": clean_url(row.get('英语')),
+            "物理": clean_url(row.get('物理')),
+            "化学": clean_url(row.get('化学')),
+            "生物": clean_url(row.get('生物')),
+            "历史": clean_url(row.get('历史')),
+            "政治": clean_url(row.get('政治')),
+            "地理": clean_url(row.get('地理'))
+        })
+
+LATEST_EXAM_IDX = len(EXAMS) - 1 if EXAMS else -1
+LATEST_EXAM = EXAMS[-1] if EXAMS else None
+
+# ==============================================================================
+# 🛠️ 核心引擎
+# ==============================================================================
 def clean_str(val):
     if pd.isna(val): return ""
     v = str(val).strip()
@@ -131,6 +149,9 @@ def build_master_df(exam_idx, grade_key):
     master['总分年级排名'] = master.groupby(['方向'])['总分'].rank(ascending=False, method='min').fillna(0).astype(int)
     return master
 
+# ==============================================================================
+# 📥 Word 导出引擎 (纯净排版)
+# ==============================================================================
 def generate_ai_doc(title, content):
     try:
         import docx
@@ -228,7 +249,6 @@ st.markdown("""
 
 CHART_CONFIG = {'displayModeBar': False, 'scrollZoom': False}
 
-# 🔴 菜单剔除了教师端
 selected_nav = option_menu(
     menu_title=None, options=["成绩总览", "历次追踪", "深度诊断"], 
     icons=["clipboard-data", "graph-up", "bullseye"], menu_icon="cast", default_index=0, orientation="horizontal",
