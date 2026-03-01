@@ -212,7 +212,7 @@ def generate_excel_download(df, filename_prefix, title_text):
         return df.to_csv(index=False).encode('utf-8-sig'), f"{filename_prefix}.csv", "text/csv"
 
 # ==============================================================================
-# 📥 导出神器 2：Word 自动排版引擎 (无星号、无黑点、4号标题、5号仿宋、1.5行距)
+# 📥 导出神器 2：精装版 AI Word 报告
 # ==============================================================================
 def generate_ai_doc(title, content):
     try:
@@ -223,13 +223,11 @@ def generate_ai_doc(title, content):
         
         doc = docx.Document()
         
-        # --- 全局默认：五号 (10.5pt) 仿宋 ---
         style = doc.styles['Normal']
         style.font.name = '仿宋'
         style._element.rPr.rFonts.set(qn('w:eastAsia'), '仿宋')
         style.font.size = Pt(10.5)
         
-        # --- 大标题：四号 (14pt) 黑体，居中 ---
         h = doc.add_heading(level=1)
         h.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
         run = h.add_run(title)
@@ -238,21 +236,17 @@ def generate_ai_doc(title, content):
         run.font.size = Pt(14)
         run.font.color.rgb = docx.shared.RGBColor(0, 0, 0)
 
-        # --- Python 智能剥离星号并保留加粗格式 ---
         def add_runs_to_paragraph(p, text):
             parts = re.split(r'(\*\*.*?\*\*)', text)
             for part in parts:
                 if part.startswith('**') and part.endswith('**'):
-                    # 剥除外层的双星号，同时清理内部残留的单星号
                     clean_text = part[2:-2].replace('*', '') 
                     r = p.add_run(clean_text)
                     r.bold = True
                 else:
-                    # 普通文字清理单星号
                     clean_text = part.replace('*', '')
                     r = p.add_run(clean_text)
                 
-                # 无论是否加粗，强制设置为五号仿宋
                 r.font.name = '仿宋'
                 r._element.rPr.rFonts.set(qn('w:eastAsia'), '仿宋')
                 r.font.size = Pt(10.5)
@@ -262,28 +256,25 @@ def generate_ai_doc(title, content):
             line = line.strip()
             if not line: continue
             
-            # --- 彻底粉碎小黑点、横杠等列表符号 ---
             if line.startswith('- '): line = line[2:].strip()
             if line.startswith('* '): line = line[2:].strip()
             line = line.replace('•', '').replace('·', '').strip()
             
-            # 处理小标题 (带井号)
             if line.startswith('#'):
                 level = 0
                 while level < len(line) and line[level] == '#': level += 1
                 text = line[level:].strip().replace('*', '')
                 
                 p = doc.add_paragraph()
-                p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE # 1.5 倍行距
+                p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE 
                 r = p.add_run(text)
                 r.bold = True
-                r.font.size = Pt(12) # 小标题用小四 (12pt)
+                r.font.size = Pt(12) 
                 r.font.name = '黑体'
                 r._element.rPr.rFonts.set(qn('w:eastAsia'), '黑体')
-            # 处理正文段落
             else:
                 p = doc.add_paragraph()
-                p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE # 1.5 倍行距
+                p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE 
                 add_runs_to_paragraph(p, line)
 
         buffer = io.BytesIO()
@@ -294,13 +285,12 @@ def generate_ai_doc(title, content):
         return text_content.encode('utf-8-sig'), f"{title}.txt", "text/plain"
 
 # ==============================================================================
-# 🧠 AI 导师提示词 (🔴 恢复至高智商版本，不再限制符号，排版交给 Python)
+# 🧠 AI 导师提示词
 # ==============================================================================
 @st.cache_data(ttl=2592000, show_spinner=False)
 def get_ai_advice_for_student(student_name, subject, weak_points, strong_points):
     if not client: return "⚠️ AI 尚未配置。"
-    # 恢复高品质生成提示词
-    prompt = f"你是拥有20年经验的高中{subject}教师。学生 {student_name} 优势：{strong_points}。薄弱：{weak_points}。请结合具体知识点，写约300字的个性化鼓励和提分计划，给出具体的学习方法指导。"
+    prompt = f"你是经验丰富的高中{subject}教师。学生 {student_name} 优势：{strong_points}。薄弱：{weak_points}。请结合具体知识点，写约300字的个性化鼓励和提分计划，给出具体的学习方法指导。"
     try:
         res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是专业AI导师。"}, {"role": "user", "content": prompt}])
         return res.choices[0].message.content
@@ -309,7 +299,6 @@ def get_ai_advice_for_student(student_name, subject, weak_points, strong_points)
 @st.cache_data(ttl=2592000, show_spinner=False)
 def get_ai_grouped_advice_for_teacher(subject, grouped_data_str):
     if not client: return "⚠️ AI 尚未配置。"
-    # 恢复高品质深度教研分析提示词
     prompt = f"""你是资深的高中{subject}教研专家。
 以下是我所带班级在本次考试中，各个薄弱知识点及对应的具体学生名单（仅列出了得分率不足 60% 的学生）：
 
@@ -422,7 +411,6 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
         master_df = build_master_df(LATEST_EXAM_IDX)
         stu_data = master_df[(master_df['姓名'] == st.session_state.logged_in_student) & (master_df['考号'] == st.session_state.logged_in_id)].iloc[0]
         
-        # --- 模块 1: 成绩总览 ---
         if selected_nav == "成绩总览":
             st.markdown(f"### 🏆 【{LATEST_EXAM['name']}】成绩概览")
             k1, k2, k3, k4, k5 = st.columns(5)
@@ -443,6 +431,7 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                 col_bar, col_radar = st.columns(2)
                 with col_bar:
                     fig1 = px.bar(chart_data, x='科目', y='得分', text_auto=True, color='科目')
+                    fig1.update_traces(textposition='outside', width=0.5)
                     fig1.update_layout(showlegend=False, margin=dict(t=40, b=20, l=20, r=20), paper_bgcolor='rgba(0,0,0,0)', dragmode=False)
                     st.plotly_chart(fig1, use_container_width=True, config=CHART_CONFIG)
                 with col_radar:
@@ -451,7 +440,6 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                     fig2.update_layout(margin=dict(t=40, b=20, l=40, r=40), paper_bgcolor='rgba(0,0,0,0)', dragmode=False)
                     st.plotly_chart(fig2, use_container_width=True, config=CHART_CONFIG)
             
-        # --- 模块 2: 历次追踪 ---
         elif selected_nav == "历次追踪":
             st.markdown(f"### 📈 历次考试波动轨迹")
             history_records = []
@@ -479,7 +467,6 @@ if selected_nav in ["成绩总览", "历次追踪", "深度诊断"]:
                     st.plotly_chart(fig_rank, use_container_width=True, config=CHART_CONFIG)
             else: st.info("暂未抓取到您的历史轨迹。")
 
-        # --- 模块 3: 深度诊断 ---
         elif selected_nav == "深度诊断":
             avail_subs = [s for s in ['语文','数学','英语','物理','化学','生物','历史','政治','地理'] if s in stu_data and stu_data[s] > 0 and LATEST_EXAM.get(s)]
             if not avail_subs: st.info("暂未配置您所考科目的详细题库数据。")
@@ -704,11 +691,27 @@ elif selected_nav == "教师后台":
 
                 st.markdown(f"#### 📊 【{LATEST_EXAM['name']}】学情分析图表")
 
+                # ==========================================================
+                # 🎨 🔴 高颜值、多色、带均分基准线的柱状图大升级！
+                # ==========================================================
                 if role == "任课教师":
                     if subject in df_filtered.columns:
                         class_avg = df_filtered.groupby('班级')[subject].mean().round(1).reset_index()
-                        fig_bar_t = px.bar(class_avg, x='班级', y=subject, text_auto=True, title=f"所带班级【{subject}】均分对比")
-                        fig_bar_t.update_layout(dragmode=False)
+                        overall_avg = df_filtered[subject].mean().round(1) # 计算所教班级该科目的总体均分
+                        
+                        # 加入 color='班级' 让柱子拥有不同颜色
+                        fig_bar_t = px.bar(class_avg, x='班级', y=subject, text_auto=True, color='班级', title=f"所带班级【{subject}】均分对比")
+                        # 把柱子变瘦，文字放在顶端外部
+                        fig_bar_t.update_traces(textposition='outside', width=0.5)
+                        # 添加红色虚线作为【年级均分基准线】
+                        fig_bar_t.add_hline(y=overall_avg, line_dash="dash", line_color="#FF4B4B", 
+                                            annotation_text=f"所教班级均分: {overall_avg:.1f}", 
+                                            annotation_position="top left",
+                                            annotation_font=dict(color="#FF4B4B", size=14, weight="bold"))
+                        # 稍微增加顶部空间防止文字被切掉
+                        y_max = class_avg[subject].max() * 1.15 if not class_avg.empty else 100
+                        fig_bar_t.update_layout(dragmode=False, showlegend=False, yaxis_range=[0, y_max], margin=dict(t=50, b=20, l=20, r=20))
+                        
                         st.plotly_chart(fig_bar_t, use_container_width=True, config=CHART_CONFIG)
                         
                         st.markdown("#### 📋 学生成绩明细表")
@@ -830,10 +833,34 @@ elif selected_nav == "教师后台":
 
                     else: st.warning(f"当前群体的考试中未找到您的学科【{subject}】。")
                 
+                # --- 教务处 & 班主任视角 ---
                 else:
-                    class_avg = df_filtered.groupby('班级')['总分'].mean().round(1).reset_index()
-                    fig_bar_tot = px.bar(class_avg, x='班级', y='总分', text_auto=True, title="总分均分对照")
-                    fig_bar_tot.update_layout(dragmode=False)
+                    # ==========================================================
+                    # 🔴 教务处/班主任的终极升级：各科均分自由切换！
+                    # ==========================================================
+                    # 提取所有可以分析的指标（总分 + 所有有成绩的单科）
+                    avail_metrics = ['总分']
+                    for s in ['语文','数学','英语','物理','化学','生物','历史','政治','地理']:
+                        if s in df_filtered.columns and df_filtered[s].sum() > 0:
+                            avail_metrics.append(s)
+                    
+                    # 增加下拉菜单供老师随意切换
+                    st.info("💡 下方图表支持切换查看【总分】或【单科】成绩对比！")
+                    selected_metric = st.selectbox("📊 请选择要对比的分析指标：", avail_metrics)
+                    
+                    class_avg = df_filtered.groupby('班级')[selected_metric].mean().round(1).reset_index()
+                    overall_avg = df_filtered[selected_metric].mean().round(1) # 计算这个群体的总体均分
+                    
+                    # 高颜值多色柱状图，带红色基准线
+                    fig_bar_tot = px.bar(class_avg, x='班级', y=selected_metric, text_auto=True, color='班级', title=f"各班【{selected_metric}】均分横向对比")
+                    fig_bar_tot.update_traces(textposition='outside', width=0.5)
+                    fig_bar_tot.add_hline(y=overall_avg, line_dash="dash", line_color="#FF4B4B", 
+                                          annotation_text=f"年级平均线: {overall_avg:.1f}", annotation_position="top left",
+                                          annotation_font=dict(color="#FF4B4B", size=14, weight="bold"))
+                    
+                    y_max = class_avg[selected_metric].max() * 1.15 if not class_avg.empty else 100
+                    fig_bar_tot.update_layout(dragmode=False, showlegend=False, yaxis_range=[0, y_max], margin=dict(t=50, b=20, l=20, r=20))
+                    
                     st.plotly_chart(fig_bar_tot, use_container_width=True, config=CHART_CONFIG)
                     
                     st.markdown("#### 📋 学生全科成绩明细表")
