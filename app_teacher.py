@@ -15,64 +15,87 @@ import re
 st.set_page_config(page_title="英华教务教研指挥舱", layout="wide", page_icon="🏢", initial_sidebar_state="expanded")
 
 # ==============================================================================
-# 🎨 顶级 SaaS 美学 CSS 样式注入 (解决白字BUG，打造深色质感)
+# 🎨 顶级 SaaS 美学 CSS 样式注入 (彻底解决白底 Bug，打造深色质感)
 # ==============================================================================
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;} header {visibility: hidden;} footer {visibility: hidden;}
     .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; max-width: 96% !important;}
     
-    /* 整个页面浅灰底色，凸显卡片 */
+    /* 整个页面浅灰底色，凸显右侧白色卡片 */
     .stApp { background-color: #F4F7F9; }
     
-    /* ---------------------------------------------------------
+    /* =========================================================
        左侧边栏 - 深空蓝黑高端风
-       ---------------------------------------------------------*/
+       ========================================================= */
     [data-testid="stSidebar"] {
         background-color: #0B1120 !important; /* 极深蓝黑 */
     }
-    [data-testid="stSidebar"] p, [data-testid="stSidebar"] div, [data-testid="stSidebar"] label {
+    [data-testid="stSidebar"] p, [data-testid="stSidebar"] label, [data-testid="stSidebar"] span {
         color: #94A3B8 !important; /* 默认文字浅灰 */
     }
     [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
         color: #F8FAFC !important; /* 标题纯白 */
     }
     [data-testid="stSidebar"] hr {
-        border-color: rgba(255,255,255,0.1) !important;
+        border-color: rgba(255,255,255,0.05) !important;
+        margin-top: 10px !important; margin-bottom: 10px !important;
     }
 
     /* ---------------------------------------------------------
-       侧边栏中的 Expander (下拉菜单) -> 打造“浅黑”质感
+       下拉框 (Selectbox) 深度美化 - 融入暗黑背景
        ---------------------------------------------------------*/
+    [data-testid="stSidebar"] div[data-baseweb="select"] > div {
+        background-color: #1E293B !important; /* 深灰色框 */
+        border: 1px solid rgba(255,255,255,0.1) !important;
+        border-radius: 8px !important;
+        cursor: pointer;
+    }
+    [data-testid="stSidebar"] div[data-baseweb="select"] div {
+        color: #F8FAFC !important; /* 选中的文字纯白 */
+    }
+    [data-testid="stSidebar"] div[data-baseweb="select"] svg {
+        fill: #94A3B8 !important;
+    }
+
+    /* ---------------------------------------------------------
+       下拉折叠面板 (Expander) 深度美化 - 去除臃肿白框
+       ---------------------------------------------------------*/
+    [data-testid="stSidebar"] [data-testid="stExpander"] {
+        border: none !important;
+        background: transparent !important;
+    }
     [data-testid="stSidebar"] [data-testid="stExpander"] details {
-        background-color: #1E293B !important; /* 浅黑/深灰背景 */
-        border: 1px solid rgba(255,255,255,0.05) !important;
-        border-radius: 12px;
-        overflow: hidden;
+        border: none !important;
+        background: transparent !important;
     }
     [data-testid="stSidebar"] [data-testid="stExpander"] summary {
-        background-color: #1E293B !important;
-        color: #F8FAFC !important;
-        padding: 12px 15px !important;
+        padding: 0 !important;
+        margin-bottom: 10px !important;
     }
-    [data-testid="stSidebar"] [data-testid="stExpander"] summary:hover {
-        background-color: #334155 !important; /* 鼠标悬停微微提亮 */
+    [data-testid="stSidebar"] [data-testid="stExpander"] summary p {
+        font-size: 14px !important;
+        font-weight: bold !important;
+        color: #64748B !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stExpander"] summary svg {
+        fill: #64748B !important;
     }
     [data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stExpanderDetails"] {
-        padding: 0 5px 5px 5px !important; /* 让 option_menu 完美贴合 */
+        padding: 0 !important; /* 彻底去除多余内边距 */
     }
 
-    /* ---------------------------------------------------------
+    /* =========================================================
        主内容区卡片与指标美化
-       ---------------------------------------------------------*/
+       ========================================================= */
     .header-card {
-        background-color: #FFFFFF; padding: 20px 30px; border-radius: 10px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.04); display: flex; justify-content: space-between;
+        background-color: #FFFFFF; padding: 20px 30px; border-radius: 12px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.03); display: flex; justify-content: space-between;
         align-items: center; margin-bottom: 25px; border-left: 6px solid #3B82F6;
     }
     div[data-testid="stMetric"] {
         background-color: #FFFFFF; border-radius: 12px; padding: 20px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.03); border: 1px solid #F0F0F0; text-align: center;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.02); border: 1px solid #F1F5F9; text-align: center;
     }
     div[data-testid="stMetric"] label { font-size: 15px !important; color: #64748B !important; }
     div[data-testid="stMetric"] div[data-testid="stMetricValue"] { font-size: 28px !important; color: #0F172A !important; font-weight: 800 !important; }
@@ -369,34 +392,34 @@ def logout():
     st.rerun()
 
 # ==============================================================================
-# 🌐 左侧 SaaS 导航边栏 (高级黑/深空蓝风格)
+# 🌐 左侧 SaaS 导航边栏 (顶级黑/深空蓝风格)
 # ==============================================================================
-menu_sel = "首页大盘" # 默认值
-adm_direction = "物理方向" # 默认值
+menu_sel = "首页大盘" # 防止报错默认值
+adm_direction = "物理方向" # 防止报错默认值
 
 if st.session_state.teacher_role:
     with st.sidebar:
-        st.markdown(f"<h2 style='margin-top:-20px; padding-bottom: 20px;'>🏫 英华教务系统</h2>", unsafe_allow_html=True)
+        st.markdown(f"<h2 style='margin-top:-20px; padding-bottom: 10px;'>🏫 英华教务系统</h2>", unsafe_allow_html=True)
         
-        # 顶部：用户信息模块 (卡片样式)
+        # 顶部：用户信息模块 (高级深邃卡片)
         st.markdown(f"""
-        <div style='background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%); padding: 15px; border-radius: 10px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.05);'>
-            <div style='color: #F8FAFC; font-size: 18px; font-weight: 800;'>👨‍🏫 {st.session_state.teacher_name}</div>
-            <div style='color: #94A3B8; font-size: 13px; margin-top: 5px;'>🛡️ 权限：{st.session_state.teacher_role}</div>
+        <div style='background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%); padding: 18px; border-radius: 12px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 4px 12px rgba(0,0,0,0.2);'>
+            <div style='color: #F8FAFC; font-size: 18px; font-weight: 800; letter-spacing: 1px;'>👨‍🏫 {st.session_state.teacher_name}</div>
+            <div style='color: #94A3B8; font-size: 13px; margin-top: 6px;'>🛡️ 权限：{st.session_state.teacher_role}</div>
         </div>
         """, unsafe_allow_html=True)
         
-        # 核心筛选器
+        # 核心筛选器 (隐藏原始标题，用自定义的浅灰色小标题代替)
         st.markdown("<p style='font-size: 13px; font-weight: bold; margin-bottom: -10px; color: #64748B;'>大区控制</p>", unsafe_allow_html=True)
         selected_grade = st.selectbox("隐藏标签1", ["高三", "高二", "高一"], index=["高三", "高二", "高一"].index(st.session_state.current_grade), label_visibility="collapsed")
         
-        st.markdown("<p style='font-size: 13px; font-weight: bold; margin-bottom: -10px; color: #64748B;'>群体筛选</p>", unsafe_allow_html=True)
+        st.markdown("<br><p style='font-size: 13px; font-weight: bold; margin-bottom: -10px; margin-top:-15px; color: #64748B;'>群体筛选</p>", unsafe_allow_html=True)
         adm_direction = st.selectbox("隐藏标签2", ["物理方向", "历史方向", "综合方向"], label_visibility="collapsed")
         
         st.divider()
         
-        # 🔴 悬浮下拉导航菜单 (完美解决白字看不清的问题)
-        with st.expander("🛠️ 系统功能导航", expanded=True):
+        # 🔴 浅黑底色的悬浮下拉导航菜单 (完美解决白字看不清的问题)
+        with st.expander("🛠️ 展开/收起 功能导航", expanded=True):
             menu_sel = option_menu(
                 menu_title=None,
                 options=["首页大盘", "成绩明细表", "历次追踪分析", "AI 教研中心"],
@@ -404,16 +427,17 @@ if st.session_state.teacher_role:
                 menu_icon="cast",
                 default_index=0,
                 styles={
-                    "container": {"padding": "0!important", "background-color": "transparent"},
+                    # 强制容器底色为浅黑/深灰，彻底消灭白色块！
+                    "container": {"padding": "5px!important", "background-color": "#162032", "border-radius": "10px"},
                     "icon": {"color": "#94A3B8", "font-size": "16px"},
-                    "nav-link": {"font-size": "15px", "text-align": "left", "margin":"4px 0", "color": "#CBD5E1", "border-radius": "8px", "padding": "10px"},
+                    "nav-link": {"font-size": "15px", "text-align": "left", "margin":"2px 0", "color": "#CBD5E1", "border-radius": "8px", "padding": "10px 15px"},
                     "nav-link-selected": {"background-color": "#3B82F6", "color": "#FFFFFF", "font-weight": "bold"},
-                    "nav-link:hover": {"background-color": "rgba(255,255,255,0.05)"}
+                    "nav-link:hover": {"background-color": "rgba(255,255,255,0.06)"}
                 }
             )
         
         st.divider()
-        st.button("🚪 安全退出当前账号", on_click=logout, use_container_width=True, type="secondary")
+        st.button("🚪 退出当前账号", on_click=logout, use_container_width=True, type="secondary")
         
         if selected_grade != st.session_state.current_grade:
             st.session_state.current_grade = selected_grade
@@ -427,14 +451,13 @@ if not st.session_state.teacher_role:
     c_left, c_mid, c_right = st.columns([1, 1.5, 1])
     with c_mid:
         with st.form("teacher_login"):
-            st.markdown(f"<h2 style='text-align: center; color: #0F172A; margin-bottom: 30px;'>🏫 英华学校教研指挥舱</h2>", unsafe_allow_html=True)
+            st.markdown(f"<h2 style='text-align: center; color: #0F172A; margin-bottom: 30px; font-weight: 800;'>🏫 英华数据指挥舱</h2>", unsafe_allow_html=True)
             t_name = st.text_input("👤 教职工姓名 (需与学校花名册一致)")
             pwd = st.text_input("🔐 访问密码", type="password")
             
-            # 由于侧边栏在未登录时也需要 selected_grade 的定义才能不出错，这里做个隐式处理
             selected_grade = st.session_state.current_grade 
             
-            if st.form_submit_button("验证并进入中台", use_container_width=True):
+            if st.form_submit_button("安全验证并进入", use_container_width=True):
                 try: roster_df = pd.read_csv(URL_TEACHER_ROSTER, on_bad_lines='skip')
                 except: roster_df = None
                 
@@ -547,7 +570,7 @@ else:
                                      title=f"🏆 各班级【{metric_col}】均分横向对比阵列")
                     
                     # 柱子变苗条 (width=0.35)
-                    fig_bar.update_traces(textposition='outside', width=0.35, textfont_size=13, marker_line_width=0)
+                    fig_bar.update_traces(textposition='outside', width=0.35, textfont_size=14, marker_line_width=0)
                     
                     # 添加极具设计感的红色点划均分线
                     fig_bar.add_hline(y=overall_avg, line_dash="dot", line_color="#EF4444", line_width=2,
@@ -801,3 +824,5 @@ else:
                                                     st.divider()
                 else:
                     st.warning(f"目前缺少【{analyze_subject}】的单题明细表，无法进行 AI 深度诊断。")
+    else:
+        st.warning("📡 尚未配置数据或当前年级无考试记录。")
