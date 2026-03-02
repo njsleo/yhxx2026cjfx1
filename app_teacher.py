@@ -15,72 +15,78 @@ import re
 st.set_page_config(page_title="英华教务教研指挥舱", layout="wide", page_icon="🏢", initial_sidebar_state="expanded")
 
 # ==============================================================================
-# 🎨 顶级 SaaS 美学 CSS 样式注入 
+# 🎨 顶级 SaaS 美学 CSS 样式注入 (极简、紧凑、去白边)
 # ==============================================================================
 st.markdown("""
 <style>
-    /* 隐藏底部水印和右上角菜单，但保留header以显示侧边栏展开按钮，将其设为透明 */
     #MainMenu {visibility: hidden;} 
     footer {visibility: hidden;} 
     header {background: transparent !important;}
     
     .block-container { padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 96% !important;}
-    
-    /* 整个页面浅灰底色，凸显右侧白色卡片 */
     .stApp { background-color: #F4F7F9; }
     
     /* =========================================================
-       左侧边栏 - 深空蓝黑高端风
+       1. 侧边栏瘦身与底色
        ========================================================= */
     [data-testid="stSidebar"] {
-        background-color: #0B1120 !important; /* 极深蓝黑 */
+        min-width: 250px !important; /* 强制变窄 */
+        max-width: 250px !important;
+        background-color: #0B1120 !important;
     }
     [data-testid="stSidebar"] p, [data-testid="stSidebar"] label, [data-testid="stSidebar"] span {
-        color: #94A3B8 !important; /* 默认文字浅灰 */
+        color: #94A3B8 !important; 
     }
     [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
-        color: #F8FAFC !important; /* 标题纯白 */
+        color: #F8FAFC !important; 
     }
     [data-testid="stSidebar"] hr {
         border-color: rgba(255,255,255,0.05) !important;
         margin-top: 10px !important; margin-bottom: 10px !important;
     }
 
-    /* ---------------------------------------------------------
-       下拉框 (Selectbox) 深度美化 - 紧凑排列、暗黑背景
-       ---------------------------------------------------------*/
-    /* 🔴 让两个下拉框紧密挨在一起 */
+    /* =========================================================
+       2. 下拉框 (Selectbox) 彻底暗黑化 (消灭弹出白框)
+       ========================================================= */
     [data-testid="stSidebar"] div[data-testid="stSelectbox"] {
         margin-bottom: -15px !important; 
     }
-    
     [data-testid="stSidebar"] div[data-baseweb="select"] > div {
-        background-color: #1E293B !important; /* 深灰色框 */
+        background-color: #1E293B !important; 
         border: 1px solid rgba(255,255,255,0.05) !important;
         border-radius: 8px !important;
-        cursor: pointer;
     }
     [data-testid="stSidebar"] div[data-baseweb="select"] div {
-        color: #F8FAFC !important; /* 选中的文字纯白 */
+        color: #E2E8F0 !important; 
     }
     [data-testid="stSidebar"] div[data-baseweb="select"] svg {
         fill: #94A3B8 !important;
     }
+    /* 穿透全局：把弹出的下拉列表背景也改成暗黑 */
+    ul[role="listbox"] {
+        background-color: #1E293B !important;
+    }
+    li[role="option"] {
+        background-color: #1E293B !important;
+        color: #E2E8F0 !important;
+    }
+    li[role="option"]:hover {
+        background-color: #334155 !important;
+    }
 
-    /* ---------------------------------------------------------
-       下拉折叠面板 (Expander) 深度美化 - 去除臃肿白框
-       ---------------------------------------------------------*/
+    /* =========================================================
+       3. 导航折叠面板去白底、去臃肿
+       ========================================================= */
     [data-testid="stSidebar"] [data-testid="stExpander"] {
         border: none !important;
         background: transparent !important;
     }
-    [data-testid="stSidebar"] [data-testid="stExpander"] details {
-        border: none !important;
-        background: transparent !important;
-    }
+    [data-testid="stSidebar"] [data-testid="stExpander"] details, 
     [data-testid="stSidebar"] [data-testid="stExpander"] summary {
+        background: transparent !important;
+        border: none !important;
         padding: 0 !important;
-        margin-bottom: 10px !important;
+        margin-bottom: 5px !important;
     }
     [data-testid="stSidebar"] [data-testid="stExpander"] summary p {
         font-size: 15px !important;
@@ -91,25 +97,25 @@ st.markdown("""
         fill: #64748B !important;
     }
     [data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stExpanderDetails"] {
-        padding: 0 !important; /* 彻底去除多余内边距 */
+        padding: 0 !important; 
     }
 
     /* =========================================================
-       主内容区卡片与指标美化
+       4. 右侧内容区美化
        ========================================================= */
     .header-card {
-        background-color: #FFFFFF; padding: 20px 30px; border-radius: 12px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.03); display: flex; justify-content: space-between;
-        align-items: center; margin-bottom: 25px; border-left: 6px solid #3B82F6;
+        background-color: #FFFFFF; padding: 15px 25px; border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.03); display: flex; justify-content: space-between;
+        align-items: center; margin-bottom: 20px; border-left: 6px solid #3B82F6;
     }
     div[data-testid="stMetric"] {
-        background-color: #FFFFFF; border-radius: 12px; padding: 20px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.02); border: 1px solid #F1F5F9; text-align: center;
+        background-color: #FFFFFF; border-radius: 10px; padding: 15px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.02); border: 1px solid #F1F5F9; text-align: center;
     }
-    div[data-testid="stMetric"] label { font-size: 15px !important; color: #64748B !important; }
-    div[data-testid="stMetric"] div[data-testid="stMetricValue"] { font-size: 28px !important; color: #0F172A !important; font-weight: 800 !important; }
+    div[data-testid="stMetric"] label { font-size: 14px !important; color: #64748B !important; }
+    div[data-testid="stMetric"] div[data-testid="stMetricValue"] { font-size: 26px !important; color: #0F172A !important; font-weight: 800 !important; }
     div[data-testid="stForm"] { background-color: #ffffff; padding: 40px; border-radius: 15px; box-shadow: 0 8px 20px rgba(0,0,0,0.05); border: none; }
-    .ai-box { background: #FFFFFF; border-left: 5px solid #10B981; padding: 25px; border-radius: 10px; font-size: 16px; color: #333; line-height: 1.8; box-shadow: 0 4px 15px rgba(0,0,0,0.04);}
+    .ai-box { background: #FFFFFF; border-left: 5px solid #10B981; padding: 20px; border-radius: 8px; font-size: 15px; color: #333; line-height: 1.8; box-shadow: 0 2px 10px rgba(0,0,0,0.03);}
 </style>
 """, unsafe_allow_html=True)
 
@@ -245,21 +251,22 @@ def build_master_df(grade_key):
     return master, latest_exam, exams
 
 # ==============================================================================
-# 🎨 导出与排版模块
+# 🎨 导出与排版模块 (🔴 压缩表格行高)
 # ==============================================================================
 def render_html_table(df):
     html = """
-    <div style="width: 100%; overflow-x: auto; margin-bottom: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.03); border: 1px solid #E8E8E8; background: white;">
-    <table style="width: 100%; border-collapse: collapse; font-size: 15px; text-align: center; font-family: 'Helvetica Neue', Arial, sans-serif;">
+    <div style="width: 100%; overflow-x: auto; margin-bottom: 25px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); border: 1px solid #E8E8E8; background: white;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 14px; text-align: center; font-family: 'Helvetica Neue', Arial, sans-serif;">
     """
-    html += "<tr>" + "".join([f"<th style='background-color: #FAFAFA; color: #333; padding: 18px 12px; border-bottom: 2px solid #E8E8E8; white-space: nowrap; font-weight: 800;'>{col}</th>" for col in df.columns]) + "</tr>"
+    # 减小了 th 和 td 的 padding，让行高变紧凑
+    html += "<tr>" + "".join([f"<th style='background-color: #FAFAFA; color: #333; padding: 10px 12px; border-bottom: 2px solid #E8E8E8; white-space: nowrap; font-weight: 800;'>{col}</th>" for col in df.columns]) + "</tr>"
     for i, row in df.iterrows():
         bg_color = "#FFFFFF" if i % 2 == 0 else "#FAFAFA"
         html += f"<tr style='background-color: {bg_color}; transition: background-color 0.2s;' onmouseover=\"this.style.backgroundColor='#E6F7FF'\" onmouseout=\"this.style.backgroundColor='{bg_color}'\">"
         for col in df.columns:
             val = row[col]
             if isinstance(val, float): val = f"{val:.1f}"
-            html += f"<td style='padding: 15px 12px; border-bottom: 1px solid #F0F0F0; color: #555;'>{val}</td>"
+            html += f"<td style='padding: 8px 12px; border-bottom: 1px solid #F0F0F0; color: #555;'>{val}</td>"
         html += "</tr>"
     html += "</table></div>"
     st.markdown(html, unsafe_allow_html=True)
@@ -401,7 +408,7 @@ def logout():
     st.rerun()
 
 # ==============================================================================
-# 🌐 左侧 SaaS 导航边栏 (高级黑/深空蓝极简风格)
+# 🌐 左侧 SaaS 导航边栏 (极致克制风)
 # ==============================================================================
 menu_sel = "首页" # 防止报错默认值
 adm_direction = "物理方向" # 防止报错默认值
@@ -418,13 +425,13 @@ if st.session_state.teacher_role:
         </div>
         """, unsafe_allow_html=True)
         
-        # 核心筛选器 (🔴 极简无标题版，下拉框紧凑贴合)
+        # 核心筛选器 (极简无标题，紧凑贴合)
         selected_grade = st.selectbox("隐藏标签1", ["高三", "高二", "高一"], index=["高三", "高二", "高一"].index(st.session_state.current_grade), label_visibility="collapsed")
         adm_direction = st.selectbox("隐藏标签2", ["物理方向", "历史方向", "综合方向"], label_visibility="collapsed")
         
         st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
         
-        # 🔴 浅黑底色的悬浮下拉导航菜单，更名为“考试分析”
+        # 🔴 浅黑底色的悬浮下拉导航菜单 (无底色高亮，仅文字变亮)
         with st.expander("📊 考试分析", expanded=True):
             menu_sel = option_menu(
                 menu_title=None,
@@ -433,12 +440,14 @@ if st.session_state.teacher_role:
                 menu_icon="cast",
                 default_index=0,
                 styles={
-                    # 强制容器底色为浅黑/深灰，彻底消灭白色块！
+                    # 容器底色为浅黑/深灰
                     "container": {"padding": "5px!important", "background-color": "#162032", "border-radius": "10px"},
-                    "icon": {"color": "#94A3B8", "font-size": "16px"},
-                    "nav-link": {"font-size": "15px", "text-align": "left", "margin":"2px 0", "color": "#CBD5E1", "border-radius": "8px", "padding": "10px 15px"},
-                    "nav-link-selected": {"background-color": "#3B82F6", "color": "#FFFFFF", "font-weight": "bold"},
-                    "nav-link:hover": {"background-color": "rgba(255,255,255,0.06)"}
+                    "icon": {"color": "#64748B", "font-size": "15px"},
+                    # 缩小 margin 和 padding，让行距变小
+                    "nav-link": {"font-size": "14px", "text-align": "left", "margin":"0px 0", "color": "#64748B", "border-radius": "6px", "padding": "6px 15px"},
+                    # 选中时不加背景色，仅字体变纯白加粗
+                    "nav-link-selected": {"background-color": "transparent", "color": "#F8FAFC", "font-weight": "bold"},
+                    "nav-link:hover": {"background-color": "rgba(255,255,255,0.03)"}
                 }
             )
         
@@ -542,7 +551,6 @@ else:
                 
                 metric_col = subject if (is_single_subject_view and subject in df_filtered.columns) else '总分'
                 
-                # 全科下拉切换组件 (仅班主任/教务可见)
                 if not is_single_subject_view:
                     avail_metrics = ['总分'] + [s for s in ['语文','数学','英语','物理','化学','生物','历史','政治','地理'] if s in df_filtered.columns and df_filtered[s].sum() > 0]
                     st.markdown("<p style='font-size: 14px; font-weight: bold; color: #64748B; margin-bottom: -10px;'>⚡ 切换全局大盘分析指标</p>", unsafe_allow_html=True)
@@ -558,7 +566,6 @@ else:
                 class_avgs = df_filtered.groupby('班级')[metric_col].mean()
                 top_class = class_avgs.idxmax() if not class_avgs.empty else "无"
                 
-                # 绘制 4 个精美的 KPI 卡片
                 k1, k2, k3, k4 = st.columns(4)
                 k1.metric("所辖班级数", f"{class_count} 个")
                 k2.metric("覆盖学生人数", f"{total_stu} 人")
@@ -567,18 +574,14 @@ else:
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 
-                # 高颜值苗条多色柱状图 + 均分红线
                 if not class_avgs.empty:
                     df_bar = class_avgs.reset_index().round(1)
-                    # 使用马卡龙高级配色系
                     fig_bar = px.bar(df_bar, x='班级', y=metric_col, text_auto=True, color='班级', 
                                      color_discrete_sequence=px.colors.qualitative.Pastel,
                                      title=f"🏆 各班级【{metric_col}】均分横向对比阵列")
                     
-                    # 柱子变苗条 (width=0.35)
                     fig_bar.update_traces(textposition='outside', width=0.35, textfont_size=14, marker_line_width=0)
                     
-                    # 添加极具设计感的红色点划均分线
                     fig_bar.add_hline(y=overall_avg, line_dash="dot", line_color="#EF4444", line_width=2,
                                       annotation_text=f"🎯 群像均分红线: {overall_avg:.1f}", annotation_position="top left", 
                                       annotation_font=dict(color="#EF4444", size=13, weight="bold"))
@@ -586,7 +589,7 @@ else:
                     y_max = df_bar[metric_col].max() * 1.15 if not df_bar.empty else 100
                     fig_bar.update_layout(
                         dragmode=False, showlegend=False, yaxis_range=[0, y_max], 
-                        plot_bgcolor='rgba(248, 250, 252, 0.5)', # 极浅蓝灰网格背景
+                        plot_bgcolor='rgba(248, 250, 252, 0.5)', 
                         paper_bgcolor='white',
                         margin=dict(t=60, b=30, l=30, r=30),
                         xaxis_title=None, yaxis_title=None,
