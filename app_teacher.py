@@ -15,12 +15,16 @@ import re
 st.set_page_config(page_title="英华教务教研指挥舱", layout="wide", page_icon="🏢", initial_sidebar_state="expanded")
 
 # ==============================================================================
-# 🎨 顶级 SaaS 美学 CSS 样式注入 (彻底解决白底 Bug，打造深色质感)
+# 🎨 顶级 SaaS 美学 CSS 样式注入 (修复侧边栏展开按钮Bug，打造深色质感)
 # ==============================================================================
 st.markdown("""
 <style>
-    #MainMenu {visibility: hidden;} header {visibility: hidden;} footer {visibility: hidden;}
-    .block-container { padding-top: 2rem !important; padding-bottom: 2rem !important; max-width: 96% !important;}
+    /* 隐藏底部水印和右上角菜单，但保留header以显示侧边栏展开按钮，将其设为透明 */
+    #MainMenu {visibility: hidden;} 
+    footer {visibility: hidden;} 
+    header {background: transparent !important;}
+    
+    .block-container { padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 96% !important;}
     
     /* 整个页面浅灰底色，凸显右侧白色卡片 */
     .stApp { background-color: #F4F7F9; }
@@ -392,10 +396,10 @@ def logout():
     st.rerun()
 
 # ==============================================================================
-# 🌐 左侧 SaaS 导航边栏 (顶级黑/深空蓝风格)
+# 🌐 左侧 SaaS 导航边栏 (高级黑/深空蓝风格)
 # ==============================================================================
-menu_sel = "首页大盘" # 防止报错默认值
-adm_direction = "物理方向" # 防止报错默认值
+menu_sel = "首页" # 默认值
+adm_direction = "物理方向" # 默认值
 
 if st.session_state.teacher_role:
     with st.sidebar:
@@ -419,10 +423,10 @@ if st.session_state.teacher_role:
         st.divider()
         
         # 🔴 浅黑底色的悬浮下拉导航菜单 (完美解决白字看不清的问题)
-        with st.expander("🛠️ 展开/收起 功能导航", expanded=True):
+        with st.expander("🛠️ 系统功能导航", expanded=True):
             menu_sel = option_menu(
                 menu_title=None,
-                options=["首页大盘", "成绩明细表", "历次追踪分析", "AI 教研中心"],
+                options=["首页", "成绩明细表", "历次追踪分析", "AI 教研中心"],
                 icons=["grid-fill", "table", "graph-up-arrow", "robot"],
                 menu_icon="cast",
                 default_index=0,
@@ -437,7 +441,7 @@ if st.session_state.teacher_role:
             )
         
         st.divider()
-        st.button("🚪 退出当前账号", on_click=logout, use_container_width=True, type="secondary")
+        st.button("🚪 安全退出当前账号", on_click=logout, use_container_width=True, type="secondary")
         
         if selected_grade != st.session_state.current_grade:
             st.session_state.current_grade = selected_grade
@@ -528,9 +532,9 @@ else:
             is_single_subject_view = role in TEACHER_ROLES + SUBJECT_HEAD_ROLES
             
             # =====================================================================
-            # 模块一：首页大盘
+            # 模块一：首页
             # =====================================================================
-            if menu_sel == "首页大盘":
+            if menu_sel == "首页":
                 total_stu = len(df_filtered)
                 class_count = df_filtered['班级'].nunique()
                 
