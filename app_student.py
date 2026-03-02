@@ -9,22 +9,156 @@ import functools
 import io
 import re
 
-st.set_page_config(page_title="英华学校考试学情自诊系统", layout="wide", page_icon="🎓", initial_sidebar_state="expanded")
+# ==============================================================================
+# 1. 页面基础配置 (SaaS 宽屏模式)
+# ==============================================================================
+st.set_page_config(page_title="英华学情查询系统", layout="wide", page_icon="🎓", initial_sidebar_state="expanded")
+
+# ==============================================================================
+# 🎨 顶级 SaaS 美学 CSS 样式注入 (极简、紧凑、去白边)
+# ==============================================================================
+st.markdown("""
+<style>
+    #MainMenu {visibility: hidden;} 
+    footer {visibility: hidden;} 
+    header {background: transparent !important;}
+    
+    .block-container { padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 96% !important;}
+    .stApp { background-color: #F4F7F9; }
+    
+    /* =========================================================
+       1. 侧边栏瘦身与底色
+       ========================================================= */
+    [data-testid="stSidebar"] {
+        min-width: 250px !important; 
+        max-width: 250px !important;
+        background-color: #0B1120 !important;
+    }
+    [data-testid="stSidebar"] p, [data-testid="stSidebar"] label, [data-testid="stSidebar"] span {
+        color: #94A3B8 !important; 
+    }
+    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
+        color: #F8FAFC !important; 
+    }
+    [data-testid="stSidebar"] hr {
+        border-color: rgba(255,255,255,0.05) !important;
+        margin-top: 10px !important; margin-bottom: 10px !important;
+    }
+
+    /* =========================================================
+       2. 下拉框 (Selectbox) 彻底暗黑化
+       ========================================================= */
+    [data-testid="stSidebar"] div[data-testid="stSelectbox"] {
+        margin-bottom: -15px !important; 
+    }
+    [data-testid="stSidebar"] div[data-baseweb="select"] > div {
+        background-color: #1E293B !important; 
+        border: 1px solid rgba(255,255,255,0.05) !important;
+        border-radius: 8px !important;
+    }
+    [data-testid="stSidebar"] div[data-baseweb="select"] div {
+        color: #E2E8F0 !important; 
+    }
+    [data-testid="stSidebar"] div[data-baseweb="select"] svg {
+        fill: #94A3B8 !important;
+    }
+    ul[role="listbox"] {
+        background-color: #1E293B !important;
+    }
+    li[role="option"] {
+        background-color: #1E293B !important;
+        color: #E2E8F0 !important;
+    }
+    li[role="option"]:hover {
+        background-color: #334155 !important;
+    }
+
+    /* =========================================================
+       3. 导航折叠面板：去白底、去毛边、极致紧凑
+       ========================================================= */
+    [data-testid="stSidebar"] [data-testid="stExpander"] {
+        border: none !important;
+        background: transparent !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stExpander"] details, 
+    [data-testid="stSidebar"] [data-testid="stExpander"] summary {
+        background: transparent !important;
+        border: none !important;
+        padding: 0 !important;
+        margin-bottom: 5px !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stExpander"] summary p {
+        font-size: 15px !important;
+        font-weight: bold !important;
+        color: #94A3B8 !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stExpander"] summary svg {
+        fill: #64748B !important;
+    }
+    [data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stExpanderDetails"] {
+        background-color: #162032 !important; 
+        border-radius: 10px !important;
+        padding: 0 !important; 
+        overflow: hidden !important; 
+        border: 1px solid rgba(255,255,255,0.03) !important;
+    }
+    [data-testid="stSidebar"] iframe {
+        background-color: transparent !important;
+    }
+
+    /* =========================================================
+       4. 退出按钮暗黑化
+       ========================================================= */
+    [data-testid="stSidebar"] div.stButton > button {
+        background-color: #1E293B !important; 
+        color: #94A3B8 !important; 
+        border: 1px solid rgba(255,255,255,0.05) !important;
+        border-radius: 8px !important;
+        font-weight: bold !important;
+        padding-top: 10px !important;
+        padding-bottom: 10px !important;
+        transition: all 0.3s ease;
+    }
+    [data-testid="stSidebar"] div.stButton > button:hover {
+        background-color: #334155 !important; 
+        color: #F8FAFC !important; 
+        border-color: rgba(255,255,255,0.1) !important;
+    }
+
+    /* =========================================================
+       5. 右侧内容区美化
+       ========================================================= */
+    .header-card {
+        background-color: #FFFFFF; padding: 15px 25px; border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.03); display: flex; justify-content: space-between;
+        align-items: center; margin-bottom: 20px; border-left: 6px solid #3B82F6;
+    }
+    div[data-testid="stMetric"] {
+        background-color: #FFFFFF; border-radius: 10px; padding: 15px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.02); border: 1px solid #F1F5F9; text-align: center;
+    }
+    div[data-testid="stMetric"] label { font-size: 14px !important; color: #64748B !important; }
+    div[data-testid="stMetric"] div[data-testid="stMetricValue"] { font-size: 26px !important; color: #0F172A !important; font-weight: 800 !important; }
+    div[data-testid="stForm"] { background-color: #ffffff; padding: 40px; border-radius: 15px; box-shadow: 0 8px 20px rgba(0,0,0,0.05); border: none; }
+    .congrats-banner { background: linear-gradient(90deg, #FFFBEB, #FFF7ED); border: 2px solid #FCD34D; color: #92400E; padding: 12px 20px; border-radius: 12px; text-align: center; font-size: 18px; font-weight: bold; margin-bottom: 25px; box-shadow: 0 4px 12px rgba(252, 211, 77, 0.2); line-height: 1.6; }
+    .main-title { text-align: center; color: #0F172A; font-size: 28px; font-weight: 800; margin-bottom: 15px; }
+    .ai-box { background: #FFFFFF; border-left: 5px solid #3B82F6; padding: 20px; border-radius: 8px; font-size: 15px; color: #333; line-height: 1.8; box-shadow: 0 2px 10px rgba(0,0,0,0.03);}
+</style>
+""", unsafe_allow_html=True)
+
+CHART_CONFIG = {'displayModeBar': False, 'scrollZoom': False}
 
 if 'current_grade' not in st.session_state: st.session_state.current_grade = "高三"
+if 'logged_in_student' not in st.session_state: st.session_state.logged_in_student = None
+if 'logged_in_id' not in st.session_state: st.session_state.logged_in_id = None
+if 'logged_in_direction' not in st.session_state: st.session_state.logged_in_direction = None
 
-with st.sidebar:
-    st.markdown("### 🎓 选择年级")
-    selected_grade = st.selectbox("当前年级：", ["高三", "高二", "高一"], index=["高三", "高二", "高一"].index(st.session_state.current_grade))
-
-if selected_grade != st.session_state.current_grade:
-    st.session_state.current_grade = selected_grade
-    for key in ['logged_in_student', 'logged_in_id', 'logged_in_direction']:
-        st.session_state[key] = None
+def logout():
+    for key in ['logged_in_student', 'logged_in_id', 'logged_in_direction']: st.session_state[key] = None
     st.rerun()
 
 # ==============================================================================
-# 👑 读取总控台链接与 API
+# 👑 核心引擎：动态读取配置与数据
 # ==============================================================================
 try:
     AI_API_KEY = st.secrets.get("DEEPSEEK_API_KEY", "")
@@ -42,45 +176,10 @@ def clean_url(url):
     if u.lower() == 'nan': return ""
     return u
 
-@st.cache_data(ttl=300) # 每5分钟去总控表拉取一次最新链接
+@st.cache_data(ttl=300) 
 def load_exam_config(url):
     try: return pd.read_csv(url, on_bad_lines='skip')
     except: return pd.DataFrame()
-
-config_df = load_exam_config(URL_EXAM_CONFIG)
-EXAMS = []
-
-if not config_df.empty and '年级' in config_df.columns:
-    grade_config = config_df[config_df['年级'].astype(str).str.strip() == selected_grade]
-    for _, row in grade_config.iterrows():
-        EXAMS.append({
-            "name": str(row.get('考试名称', '')).strip(),
-            "语文": clean_url(row.get('语文')),
-            "数学": clean_url(row.get('数学')),
-            "英语": clean_url(row.get('英语')),
-            "物理": clean_url(row.get('物理')),
-            "化学": clean_url(row.get('化学')),
-            "生物": clean_url(row.get('生物')),
-            "历史": clean_url(row.get('历史')),
-            "政治": clean_url(row.get('政治')),
-            "地理": clean_url(row.get('地理'))
-        })
-
-LATEST_EXAM_IDX = len(EXAMS) - 1 if EXAMS else -1
-LATEST_EXAM = EXAMS[-1] if EXAMS else None
-
-# ==============================================================================
-# 🛠️ 核心引擎
-# ==============================================================================
-def clean_str(val):
-    if pd.isna(val): return ""
-    v = str(val).strip()
-    if v.endswith('.0'): v = v[:-2]
-    return v
-
-def clean_name(val):
-    if pd.isna(val): return ""
-    return str(val).replace(" ", "").strip()
 
 def normalize_class_name(c):
     if pd.isna(c): return ""
@@ -91,6 +190,16 @@ def normalize_class_name(c):
     if not c.endswith("班"): c += "班"
     return c
 
+def clean_str(val):
+    if pd.isna(val): return ""
+    v = str(val).strip()
+    if v.endswith('.0'): v = v[:-2]
+    return v
+
+def clean_name(val):
+    if pd.isna(val): return ""
+    return str(val).replace(" ", "").strip()
+
 @st.cache_data(ttl=600)
 def load_data(url, header_lines=0):
     if not url or not url.strip(): return None
@@ -98,13 +207,27 @@ def load_data(url, header_lines=0):
     except: return None
 
 @st.cache_data(ttl=600, show_spinner=False)
-def build_master_df(exam_idx, grade_key):
-    if exam_idx < 0 or exam_idx >= len(EXAMS): return None
-    exam = EXAMS[exam_idx]
+def build_master_df(grade_key):
+    config_df = load_exam_config(URL_EXAM_CONFIG)
+    exams = []
+    if not config_df.empty and '年级' in config_df.columns:
+        grade_config = config_df[config_df['年级'].astype(str).str.strip() == grade_key]
+        for _, row in grade_config.iterrows():
+            exams.append({
+                "name": str(row.get('考试名称', '')).strip(),
+                "语文": clean_url(row.get('语文')), "数学": clean_url(row.get('数学')),
+                "英语": clean_url(row.get('英语')), "物理": clean_url(row.get('物理')),
+                "化学": clean_url(row.get('化学')), "生物": clean_url(row.get('生物')),
+                "历史": clean_url(row.get('历史')), "政治": clean_url(row.get('政治')),
+                "地理": clean_url(row.get('地理'))
+            })
+    if not exams: return None, None, []
+    
+    latest_exam = exams[-1]
     dfs = []
     subs = ['语文','数学','英语','物理','化学','生物','历史','政治','地理']
     for sub in subs:
-        url = exam.get(sub)
+        url = latest_exam.get(sub)
         if url:
             df_sub = load_data(url, header_lines=[0,1,2])
             if df_sub is not None:
@@ -131,7 +254,7 @@ def build_master_df(exam_idx, grade_key):
                         s_cls = normalize_class_name(row[cls_c]) if cls_c else "未分班"
                         if s_id: res.append({'姓名': s_name, '考号': s_id, '班级': s_cls, sub: round(tot, 1)})
                     if res: dfs.append(pd.DataFrame(res))
-    if not dfs: return None
+    if not dfs: return None, latest_exam, exams
     master = functools.reduce(lambda l, r: pd.merge(l, r, on=['姓名','考号','班级'], how='outer'), dfs)
     present_subs = [s for s in subs if s in master.columns]
     master[present_subs] = master[present_subs].fillna(0)
@@ -147,11 +270,28 @@ def build_master_df(exam_idx, grade_key):
     master['方向'] = master.apply(get_dir, axis=1)
     master['总分班级排名'] = master.groupby(['班级', '方向'])['总分'].rank(ascending=False, method='min').fillna(0).astype(int)
     master['总分年级排名'] = master.groupby(['方向'])['总分'].rank(ascending=False, method='min').fillna(0).astype(int)
-    return master
+    return master, latest_exam, exams
 
 # ==============================================================================
-# 📥 Word 导出引擎 (纯净排版)
+# 🎨 导出与排版模块 (压缩表格)
 # ==============================================================================
+def render_html_table(df):
+    html = """
+    <div style="width: 100%; overflow-x: auto; margin-bottom: 25px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); border: 1px solid #E8E8E8; background: white;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 14px; text-align: center; font-family: 'Helvetica Neue', Arial, sans-serif;">
+    """
+    html += "<tr>" + "".join([f"<th style='background-color: #FAFAFA; color: #333; padding: 10px 12px; border-bottom: 2px solid #E8E8E8; white-space: nowrap; font-weight: 800;'>{col}</th>" for col in df.columns]) + "</tr>"
+    for i, row in df.iterrows():
+        bg_color = "#FFFFFF" if i % 2 == 0 else "#FAFAFA"
+        html += f"<tr style='background-color: {bg_color}; transition: background-color 0.2s;' onmouseover=\"this.style.backgroundColor='#E6F7FF'\" onmouseout=\"this.style.backgroundColor='{bg_color}'\">"
+        for col in df.columns:
+            val = row[col]
+            if isinstance(val, float): val = f"{val:.1f}"
+            html += f"<td style='padding: 8px 12px; border-bottom: 1px solid #F0F0F0; color: #555;'>{val}</td>"
+        html += "</tr>"
+    html += "</table></div>"
+    st.markdown(html, unsafe_allow_html=True)
+
 def generate_ai_doc(title, content):
     try:
         import docx
@@ -193,7 +333,6 @@ def generate_ai_doc(title, content):
             if line.startswith('- '): line = line[2:].strip()
             if line.startswith('* '): line = line[2:].strip()
             line = line.replace('•', '').replace('·', '').strip()
-            
             if line.startswith('#'):
                 level = 0
                 while level < len(line) and line[level] == '#': level += 1
@@ -225,42 +364,67 @@ def get_ai_advice_for_student(grade, student_name, subject, weak_points, strong_
         return res.choices[0].message.content
     except: return "AI 生成失败"
 
-if 'logged_in_student' not in st.session_state: st.session_state.logged_in_student = None
-if 'logged_in_id' not in st.session_state: st.session_state.logged_in_id = None
-if 'logged_in_direction' not in st.session_state: st.session_state.logged_in_direction = None
+# ==============================================================================
+# 🌐 左侧 SaaS 导航边栏 (动态响应登录状态)
+# ==============================================================================
+menu_sel = "成绩总览" # 默认值
 
-def logout():
-    for key in ['logged_in_student', 'logged_in_id', 'logged_in_direction']: st.session_state[key] = None
+with st.sidebar:
+    st.markdown(f"<h2 style='margin-top:-20px; padding-bottom: 10px;'>🏫 英华学情查询</h2>", unsafe_allow_html=True)
+    
+    if st.session_state.logged_in_student:
+        # 已登录：展示学生名片
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%); padding: 18px; border-radius: 12px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 4px 12px rgba(0,0,0,0.2);'>
+            <div style='color: #F8FAFC; font-size: 18px; font-weight: 800; letter-spacing: 1px;'>👨‍🎓 {st.session_state.logged_in_student}</div>
+            <div style='color: #94A3B8; font-size: 13px; margin-top: 6px;'>📚 {st.session_state.current_grade} · {st.session_state.logged_in_direction}</div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("<p style='font-size: 13px; font-weight: bold; margin-bottom: -10px; color: #64748B;'>年级大区</p>", unsafe_allow_html=True)
+        selected_grade = st.selectbox("隐藏标签1", ["高三", "高二", "高一"], index=["高三", "高二", "高一"].index(st.session_state.current_grade), label_visibility="collapsed")
+        
+        st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
+        
+        # 🔴 极简折叠导航
+        with st.expander("📊 学情导航", expanded=True):
+            menu_sel = option_menu(
+                menu_title=None,
+                options=["成绩总览", "历次追踪", "深度诊断"],
+                icons=["grid-fill", "graph-up-arrow", "bullseye"],
+                menu_icon="cast",
+                default_index=0,
+                styles={
+                    "container": {"padding": "5px!important", "background-color": "#162032", "border-radius": "10px"},
+                    "icon": {"color": "#64748B", "font-size": "15px"},
+                    "nav-link": {"font-size": "14px", "text-align": "left", "margin":"0px 0", "color": "#64748B", "border-radius": "6px", "padding": "6px 15px"},
+                    "nav-link-selected": {"background-color": "transparent", "color": "#F8FAFC", "font-weight": "bold"},
+                    "nav-link:hover": {"background-color": "rgba(255,255,255,0.03)"}
+                }
+            )
+            
+        st.divider()
+        st.button("🚪 退出", on_click=logout, use_container_width=True, type="secondary")
+        
+    else:
+        # 未登录：仅展示年级选择
+        st.markdown("<p style='font-size: 13px; font-weight: bold; margin-bottom: -10px; color: #64748B;'>选择查询年级</p>", unsafe_allow_html=True)
+        selected_grade = st.selectbox("隐藏标签1", ["高三", "高二", "高一"], index=["高三", "高二", "高一"].index(st.session_state.current_grade), label_visibility="collapsed")
+
+if selected_grade != st.session_state.current_grade:
+    st.session_state.current_grade = selected_grade
     st.rerun()
 
-st.markdown("""
-<style>
-    #MainMenu {visibility: hidden;} header {visibility: hidden;} footer {visibility: hidden;}
-    .block-container { padding-top: 1rem !important; padding-bottom: 2rem !important; }
-    .stApp { background-color: #f4f7f9; }
-    div[data-testid="stMetric"] { background-color: #ffffff; border-radius: 12px; padding: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.03); border: 1px solid #ebeef5; text-align: center; }
-    div[data-testid="stForm"] { background-color: #ffffff; padding: 30px; border-radius: 15px; box-shadow: 0 8px 20px rgba(0,0,0,0.05); border: none; }
-    div[data-testid="stFormSubmitButton"] > button { background-color: #0068C9; color: white; font-weight: bold; border-radius: 8px; border: none; padding: 10px 0; }
-    .congrats-banner { background: linear-gradient(90deg, #FFFBEB, #FFF7ED); border: 2px solid #FCD34D; color: #92400E; padding: 12px 20px; border-radius: 12px; text-align: center; font-size: 18px; font-weight: bold; margin-bottom: 25px; box-shadow: 0 4px 12px rgba(252, 211, 77, 0.2); line-height: 1.6; }
-    .main-title { text-align: center; color: #1E3A8A; font-size: 28px; font-weight: 800; margin-bottom: 15px; }
-    .ai-box { background: linear-gradient(135deg, #f0f7ff 0%, #e6f3ff 100%); border-left: 5px solid #0068C9; padding: 25px; border-radius: 12px; font-size: 16px; color: #333; line-height: 1.8; box-shadow: 0 4px 15px rgba(0,104,201,0.1);}
-</style>
-""", unsafe_allow_html=True)
-
-CHART_CONFIG = {'displayModeBar': False, 'scrollZoom': False}
-
-selected_nav = option_menu(
-    menu_title=None, options=["成绩总览", "历次追踪", "深度诊断"], 
-    icons=["clipboard-data", "graph-up", "bullseye"], menu_icon="cast", default_index=0, orientation="horizontal",
-    styles={ "container": {"padding": "5px", "background-color": "#ffffff", "border-radius": "12px", "box-shadow": "0 4px 15px rgba(0,0,0,0.08)", "margin-bottom": "30px", "position": "sticky", "top": "15px", "z-index": "9999"}, "nav-link-selected": {"background-color": "#0068C9", "color": "white", "font-weight": "bold"} }
-)
-
+# ==============================================================================
+# 🚪 登录与主内容区
+# ==============================================================================
 if not st.session_state.logged_in_student:
     st.markdown(f"<h1 class='main-title'>🏫 英华学校【{selected_grade}】学情查询端</h1>", unsafe_allow_html=True)
-    latest_master = build_master_df(LATEST_EXAM_IDX, selected_grade)
-    if latest_master is not None and not latest_master.empty:
-        top_p = latest_master[latest_master['方向'] == '物理方向'].sort_values('总分', ascending=False).head(5)['姓名'].tolist()
-        top_h = latest_master[latest_master['方向'] == '历史方向'].sort_values('总分', ascending=False).head(5)['姓名'].tolist()
+    master_df, LATEST_EXAM, EXAMS_LIST = build_master_df(st.session_state.current_grade)
+    
+    if master_df is not None and not master_df.empty:
+        top_p = master_df[master_df['方向'] == '物理方向'].sort_values('总分', ascending=False).head(5)['姓名'].tolist()
+        top_h = master_df[master_df['方向'] == '历史方向'].sort_values('总分', ascending=False).head(5)['姓名'].tolist()
         str_p = f"🚀 理科前五名：{'、'.join(top_p)}" if top_p else ""
         str_h = f"🌟 文科前五名：{'、'.join(top_h)}" if top_h else ""
         banner_html = f"🎉 <b>【{LATEST_EXAM['name']}】成绩表彰光荣榜</b> 🏆<br>"
@@ -272,15 +436,16 @@ if not st.session_state.logged_in_student:
     col_left, col_mid, col_right = st.columns([1, 1.8, 1])
     with col_mid:
         with st.form("student_login"):
-            st.markdown(f"<h3 style='text-align: center; color: #555;'>👨‍🎓 学生/家长登录入口</h3><br>", unsafe_allow_html=True)
+            st.markdown(f"<h2 style='text-align: center; color: #0F172A; margin-bottom: 30px; font-weight: 800;'>👨‍🎓 家长与学生统一入口</h2>", unsafe_allow_html=True)
+            st.info("💡 提示：系统会自动根据您的学科分数识别文理方向。")
             name = st.text_input("👤 学生姓名", placeholder="请输入真实姓名")
             stu_id = st.text_input("🔢 考号/学号", placeholder="请输入准确考号")
-            if st.form_submit_button("🔍 立即查分", use_container_width=True):
+            if st.form_submit_button("🔍 安全验证并查分", use_container_width=True):
                 if name and stu_id:
-                    if latest_master is not None:
+                    if master_df is not None:
                         clean_n = clean_name(name)
                         clean_i = clean_str(stu_id)
-                        match = latest_master[(latest_master['姓名'] == clean_n) & (latest_master['考号'] == clean_i)]
+                        match = master_df[(master_df['姓名'] == clean_n) & (master_df['考号'] == clean_i)]
                         if not match.empty:
                             st.session_state.logged_in_student = clean_n
                             st.session_state.logged_in_id = clean_i
@@ -290,25 +455,28 @@ if not st.session_state.logged_in_student:
                     else: st.warning("系统暂未配置该年级的考试数据。")
                 else: st.error("⚠️ 请完整填写信息")
 else:
-    c1, c2 = st.columns([4, 1])
-    c1.markdown(f"**当前用户：** {st.session_state.logged_in_student} ({selected_grade}) | **系统判定方向：** {st.session_state.logged_in_direction}")
-    if c2.button("🚪 退出登录", use_container_width=True): logout()
-    st.divider()
-
-    master_df = build_master_df(LATEST_EXAM_IDX, selected_grade)
+    master_df, LATEST_EXAM, EXAMS_LIST = build_master_df(st.session_state.current_grade)
     stu_data = master_df[(master_df['姓名'] == st.session_state.logged_in_student) & (master_df['考号'] == st.session_state.logged_in_id)].iloc[0]
     
-    if selected_nav == "成绩总览":
-        st.markdown(f"### 🏆 【{LATEST_EXAM['name']}】成绩概览")
+    # 顶部 Header 卡片
+    st.markdown(f"""
+    <div class="header-card">
+        <h3 style="margin: 0; color: #0F172A; font-weight: 800;">❖ {menu_sel} <span style="font-size:16px; color:#94A3B8; font-weight:normal; margin-left: 10px;">/ {LATEST_EXAM['name']}</span></h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # ------------------ 模块一：成绩总览 ------------------
+    if menu_sel == "成绩总览":
         k1, k2, k3, k4, k5 = st.columns(5)
-        k1.metric("姓名", stu_data['姓名'])
-        k2.metric("方向", stu_data['方向'])
-        k3.metric("总分", f"{stu_data['总分']}")
+        k1.metric("学生姓名", stu_data['姓名'])
+        k2.metric("文理方向", stu_data['方向'])
+        k3.metric("总分实考", f"{stu_data['总分']} 分")
         k4.metric("班级名次", f"第 {stu_data['总分班级排名']} 名")
         k5.metric("年级名次", f"第 {stu_data['总分年级排名']} 名")
         
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("### 📊 各科得分对比")
+        st.markdown("<p style='font-size: 18px; font-weight: bold; color: #0F172A;'>📊 各科得分雷达扫描</p>", unsafe_allow_html=True)
+        
         subs = ['语文','数学','英语','物理','化学','生物','历史','政治','地理']
         valid_subs = [s for s in subs if s in stu_data and stu_data[s] > 0]
         
@@ -316,48 +484,95 @@ else:
             chart_data = pd.DataFrame({"科目": valid_subs, "得分": [stu_data[s] for s in valid_subs]})
             col_bar, col_radar = st.columns(2)
             with col_bar:
-                fig1 = px.bar(chart_data, x='科目', y='得分', text_auto=True, color='科目')
-                fig1.update_traces(textposition='outside', width=0.5)
-                fig1.update_layout(showlegend=False, margin=dict(t=40, b=20, l=20, r=20), paper_bgcolor='rgba(0,0,0,0)', dragmode=False)
-                st.plotly_chart(fig1, use_container_width=True, config=CHART_CONFIG)
+                with st.container(border=True):
+                    fig1 = px.bar(chart_data, x='科目', y='得分', text_auto=True, color='科目', color_discrete_sequence=px.colors.qualitative.Pastel)
+                    fig1.update_traces(textposition='outside', width=0.35, textfont_size=13, marker_line_width=0)
+                    y_max = chart_data['得分'].max() * 1.15
+                    fig1.update_layout(showlegend=False, margin=dict(t=40, b=20, l=20, r=20), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(248, 250, 252, 0.5)', yaxis_range=[0, y_max], yaxis=dict(showgrid=True, gridcolor='#F1F5F9'), dragmode=False)
+                    st.plotly_chart(fig1, use_container_width=True, config=CHART_CONFIG)
             with col_radar:
-                fig2 = px.line_polar(chart_data, r='得分', theta='科目', line_close=True)
-                fig2.update_traces(fill='toself', line_color='#0068C9')
-                fig2.update_layout(margin=dict(t=40, b=20, l=40, r=40), paper_bgcolor='rgba(0,0,0,0)', dragmode=False)
-                st.plotly_chart(fig2, use_container_width=True, config=CHART_CONFIG)
-        
-    elif selected_nav == "历次追踪":
-        st.markdown(f"### 📈 历次考试波动轨迹")
+                with st.container(border=True):
+                    fig2 = px.line_polar(chart_data, r='得分', theta='科目', line_close=True)
+                    fig2.update_traces(fill='toself', line_color='#3B82F6')
+                    fig2.update_layout(margin=dict(t=40, b=20, l=40, r=40), paper_bgcolor='rgba(0,0,0,0)', polar=dict(radialaxis=dict(visible=True, showline=False)), dragmode=False)
+                    st.plotly_chart(fig2, use_container_width=True, config=CHART_CONFIG)
+            
+    # ------------------ 模块二：历次追踪 ------------------
+    elif menu_sel == "历次追踪":
         history_records = []
-        with st.spinner("正在云端汇聚历次成绩轨迹..."):
-            for i, exam in enumerate(EXAMS):
-                m_df = build_master_df(i, selected_grade)
-                if m_df is not None and not m_df.empty:
-                    stu_h = m_df[(m_df['姓名'] == st.session_state.logged_in_student) & (m_df['考号'] == st.session_state.logged_in_id)]
-                    if not stu_h.empty:
-                        history_records.append({ "考试名称": exam['name'], "总分": float(stu_h.iloc[0]['总分']), "年级排名": int(stu_h.iloc[0]['总分年级排名']) })
+        with st.spinner("正在汇聚历次成绩轨迹..."):
+            for exam in EXAMS_LIST:
+                exam_df = None
+                dfs_sub = []
+                subs_hist = ['语文','数学','英语','物理','化学','生物','历史','政治','地理']
+                for sh in subs_hist:
+                    u = exam.get(sh)
+                    if u:
+                        d_sub = load_data(u, header_lines=[0,1,2])
+                        if d_sub is not None:
+                            n_c, i_c = None, None
+                            for col in d_sub.columns:
+                                cstr = str(col[0]) if isinstance(col, tuple) else str(col)
+                                if '姓名' in cstr: n_c = col
+                                elif '考号' in cstr or '学号' in cstr: i_c = col
+                            if n_c and i_c:
+                                r_ls = []
+                                for _, row in d_sub.iterrows():
+                                    if clean_str(row[i_c]) == st.session_state.logged_in_id:
+                                        tot = 0
+                                        for c in d_sub.columns:
+                                            if c in [n_c, i_c]: continue
+                                            if '总分' in str(c) or '排名' in str(c): continue
+                                            try: 
+                                                v = float(row[c])
+                                                if pd.notna(v): tot += v
+                                            except: pass
+                                        r_ls.append({'考号': st.session_state.logged_in_id, sh: round(tot, 1)})
+                                if r_ls: dfs_sub.append(pd.DataFrame(r_ls))
+                if dfs_sub:
+                    exam_master = functools.reduce(lambda l, r: pd.merge(l, r, on=['考号'], how='outer'), dfs_sub)
+                    p_subs = [s for s in subs_hist if s in exam_master.columns]
+                    exam_master['总分'] = exam_master[p_subs].fillna(0).sum(axis=1).round(1)
+                    row = exam_master.iloc[0]
+                    rec = {"考试名称": exam['name']}
+                    if '总分' in row: rec['总分'] = float(row['总分'])
+                    for s in subs_hist:
+                        if s in row and pd.notna(row[s]): rec[s] = float(row[s])
+                    history_records.append(rec)
         
         if history_records:
             df_trend = pd.DataFrame(history_records)
-            col_t1, col_t2 = st.columns(2)
-            with col_t1:
-                fig_score = px.line(df_trend, x="考试名称", y="总分", markers=True, title="总分走势图", line_shape="spline")
-                fig_score.update_traces(line_color="#FF4B4B", marker=dict(size=10))
-                fig_score.update_layout(dragmode=False)
-                st.plotly_chart(fig_score, use_container_width=True, config=CHART_CONFIG)
-            with col_t2:
-                fig_rank = px.line(df_trend, x="考试名称", y="年级排名", markers=True, title="总分年级排名走势 (向下代表进步)", line_shape="spline")
-                fig_rank.update_traces(line_color="#0068C9", marker=dict(size=10))
-                fig_rank.update_yaxes(autorange="reversed")
-                fig_rank.update_layout(dragmode=False)
-                st.plotly_chart(fig_rank, use_container_width=True, config=CHART_CONFIG)
+            with st.container(border=True):
+                col_t1, col_t2 = st.columns(2)
+                with col_t1:
+                    fig_score = px.line(df_trend, x="考试名称", y="总分", markers=True, title="📈 总分走势图", line_shape="spline")
+                    fig_score.update_traces(line_color="#3B82F6", marker=dict(size=10))
+                    fig_score.update_layout(dragmode=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', yaxis=dict(showgrid=True, gridcolor='#F1F5F9'))
+                    st.plotly_chart(fig_score, use_container_width=True, config=CHART_CONFIG)
+                with col_t2:
+                    if "年级排名" in df_trend.columns: # 临时处理历史没有排名的问题
+                        pass
+                    else:
+                        st.info("单科波动透视")
+                        avail_hist_subs = [s for s in ['语文','数学','英语','物理','化学','生物','历史','政治','地理'] if s in df_trend.columns]
+                        if avail_hist_subs:
+                            sel_hist_sub = st.selectbox("选择科目：", avail_hist_subs, key="hist_sub", label_visibility="collapsed")
+                            fig3 = px.line(df_trend, x="考试名称", y=sel_hist_sub, markers=True, title=f"📉 {sel_hist_sub} 单科走势", line_shape="spline")
+                            fig3.update_traces(line_color="#10B981", marker=dict(size=10))
+                            fig3.update_layout(dragmode=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', yaxis=dict(showgrid=True, gridcolor='#F1F5F9'))
+                            st.plotly_chart(fig3, use_container_width=True, config=CHART_CONFIG)
         else: st.info("暂未抓取到您的历史轨迹。")
 
-    elif selected_nav == "深度诊断":
+    # ------------------ 模块三：深度诊断 ------------------
+    elif menu_sel == "深度诊断":
         avail_subs = [s for s in ['语文','数学','英语','物理','化学','生物','历史','政治','地理'] if s in stu_data and stu_data[s] > 0 and LATEST_EXAM.get(s)]
         if not avail_subs: st.info("暂未配置您所考科目的详细题库数据。")
         else:
-            sel_sub = st.selectbox("👇 选择诊断科目", avail_subs)
+            st.markdown("<p style='font-size: 14px; font-weight: bold; color: #64748B; margin-bottom: -10px;'>⚙️ 选择诊断科目</p>", unsafe_allow_html=True)
+            c_sel, _ = st.columns([1, 4])
+            sel_sub = c_sel.selectbox("隐藏标签", avail_subs, label_visibility="collapsed")
+            st.markdown("<br>", unsafe_allow_html=True)
+            
             df_diag = load_data(LATEST_EXAM[sel_sub], header_lines=[0, 1, 2])
             if df_diag is not None:
                 name_c, id_c, cls_c = None, None, None
@@ -404,50 +619,51 @@ else:
                         
                         df_kp = pd.DataFrame(k_data)
                         if not df_kp.empty:
-                            c_chart, c_text = st.columns([1.2, 1])
-                            with c_chart:
-                                fig = go.Figure()
-                                cats = df_kp['知识点'].tolist() + [df_kp['知识点'].tolist()[0]]
-                                mys = df_kp['我的掌握率'].tolist() + [df_kp['我的掌握率'].tolist()[0]]
-                                avgs = df_kp['班级平均'].tolist() + [df_kp['班级平均'].tolist()[0]]
-                                fig.add_trace(go.Scatterpolar(r=avgs, theta=cats, fill='toself', name='班级平均', line_color='#cccccc'))
-                                fig.add_trace(go.Scatterpolar(r=mys, theta=cats, fill='toself', name='我的掌握', line_color='#FF4B4B'))
-                                fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), paper_bgcolor='rgba(0,0,0,0)', dragmode=False)
-                                st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
-                            with c_text:
-                                st.markdown("#### 🩺 专家系统诊断")
-                                if weak_points_list:
-                                    for row in k_data:
-                                        if row['知识点'] in weak_points_list:
-                                            st.write(f"▪ **{row['知识点']}** (落后 {row['班级平均'] - row['我的掌握率']:.1f}%)")
-                                else: st.success("🎉 所有知识点均达标！")
+                            with st.container(border=True):
+                                c_chart, c_text = st.columns([1.2, 1])
+                                with c_chart:
+                                    fig = go.Figure()
+                                    cats = df_kp['知识点'].tolist() + [df_kp['知识点'].tolist()[0]]
+                                    mys = df_kp['我的掌握率'].tolist() + [df_kp['我的掌握率'].tolist()[0]]
+                                    avgs = df_kp['班级平均'].tolist() + [df_kp['班级平均'].tolist()[0]]
+                                    fig.add_trace(go.Scatterpolar(r=avgs, theta=cats, fill='toself', name='班级平均', line_color='#CBD5E1'))
+                                    fig.add_trace(go.Scatterpolar(r=mys, theta=cats, fill='toself', name='我的掌握', line_color='#3B82F6'))
+                                    fig.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), paper_bgcolor='rgba(0,0,0,0)', dragmode=False)
+                                    st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
+                                with c_text:
+                                    st.markdown("<p style='font-size: 16px; font-weight: bold; color: #0F172A;'>🩺 薄弱知识点定位</p>", unsafe_allow_html=True)
+                                    if weak_points_list:
+                                        for row in k_data:
+                                            if row['知识点'] in weak_points_list:
+                                                st.markdown(f"<p style='color: #EF4444; font-size: 14px;'>▪ <b>{row['知识点']}</b> (落后班级 {row['班级平均'] - row['我的掌握率']:.1f}%)</p>", unsafe_allow_html=True)
+                                    else: st.success("🎉 所有知识点均达标！")
                             
                             st.divider()
                             
-                            ai_state_key = f"ai_stu_{selected_grade}_{st.session_state.logged_in_id}_{sel_sub}"
-                            saved_list_key = f"saved_ai_stu_list_{selected_grade}_{st.session_state.logged_in_id}_{sel_sub}"
+                            ai_state_key = f"ai_stu_{st.session_state.current_grade}_{st.session_state.logged_in_id}_{sel_sub}"
+                            saved_list_key = f"saved_ai_stu_list_{st.session_state.current_grade}_{st.session_state.logged_in_id}_{sel_sub}"
                             if saved_list_key not in st.session_state: st.session_state[saved_list_key] = []
 
                             if AI_API_KEY:
-                                if st.button(f"✨ 提取专家 AI 提分建议", type="primary"):
-                                    with st.spinner("AI 导师正在云端调取档案..."):
+                                if st.button(f"✨ 召唤 AI 导师生成专属提分计划", type="primary"):
+                                    with st.spinner("AI 导师正在分析数据..."):
                                         w_str = "、".join(weak_points_list) if weak_points_list else "无"
                                         s_str = "、".join(strong_points_list) if strong_points_list else "无"
-                                        ai_reply = get_ai_advice_for_student(selected_grade, st.session_state.logged_in_student, sel_sub, w_str, s_str)
+                                        ai_reply = get_ai_advice_for_student(st.session_state.current_grade, st.session_state.logged_in_student, sel_sub, w_str, s_str)
                                         st.session_state[ai_state_key] = ai_reply
 
                                 if ai_state_key in st.session_state:
                                     saved_reply = st.session_state[ai_state_key]
-                                    st.markdown(f"<div class='ai-box'><b>👨‍🏫 AI导师：</b><br><br>{saved_reply}</div><br>", unsafe_allow_html=True)
+                                    st.markdown(f"<div class='ai-box'><b>👨‍🏫 导师寄语：</b><br><br>{saved_reply}</div><br>", unsafe_allow_html=True)
                                     
-                                    doc_title = f"{st.session_state.logged_in_student}_{sel_sub}_专属提分计划"
+                                    doc_title = f"【{LATEST_EXAM['name']}】{st.session_state.logged_in_student}_{sel_sub}_提分计划"
                                     t_c1, t_c2, t_c3 = st.columns([1.5, 1, 1])
                                     with t_c1:
-                                        if st.button("📌 将此版建议存入网页下方档案库"):
+                                        if st.button("📌 存入本机档案库"):
                                             st.session_state[saved_list_key].insert(0, saved_reply)
-                                            st.toast("✅ 已成功存入下方档案库！")
+                                            st.toast("✅ 已成功存入！")
                                     with t_c2:
-                                        export_fmt = st.selectbox("导出格式", ["Word文档 (自动精排版)", "TXT纯文本"], label_visibility="collapsed", key="fmt_stu")
+                                        export_fmt = st.selectbox("隐藏", ["Word文档 (自动精排版)", "TXT纯文本"], label_visibility="collapsed", key="fmt_stu")
                                     with t_c3:
                                         if "Word" in export_fmt:
                                             file_data, file_name, mime_type = generate_ai_doc(doc_title, saved_reply)
@@ -455,11 +671,11 @@ else:
                                             file_data = saved_reply.encode('utf-8-sig')
                                             file_name = f"{doc_title}.txt"
                                             mime_type = "text/plain"
-                                        st.download_button(label="📥 导出本地文件", data=file_data, file_name=file_name, mime=mime_type, type="primary")
+                                        st.download_button(label="📥 导出至电脑", data=file_data, file_name=file_name, mime=mime_type, type="primary")
 
                                 if st.session_state[saved_list_key]:
-                                    with st.expander(f"📂 网页端已暂存的分析报告 (共 {len(st.session_state[saved_list_key])} 份) - 点击对比"):
+                                    with st.expander(f"📂 历史暂存报告 (共 {len(st.session_state[saved_list_key])} 份)"):
                                         for idx, old_rep in enumerate(st.session_state[saved_list_key]):
-                                            st.markdown(f"**🔖 暂存版本 {len(st.session_state[saved_list_key]) - idx}**")
+                                            st.markdown(f"**🔖 版本 {len(st.session_state[saved_list_key]) - idx}**")
                                             st.markdown(old_rep)
                                             st.divider()
