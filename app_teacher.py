@@ -15,7 +15,7 @@ import re
 st.set_page_config(page_title="英华教务教研指挥舱", layout="wide", page_icon="🏢", initial_sidebar_state="expanded")
 
 # ==============================================================================
-# 🎨 顶级 SaaS 美学 CSS 样式注入 (修复侧边栏展开按钮Bug，打造深色质感)
+# 🎨 顶级 SaaS 美学 CSS 样式注入 
 # ==============================================================================
 st.markdown("""
 <style>
@@ -47,11 +47,16 @@ st.markdown("""
     }
 
     /* ---------------------------------------------------------
-       下拉框 (Selectbox) 深度美化 - 融入暗黑背景
+       下拉框 (Selectbox) 深度美化 - 紧凑排列、暗黑背景
        ---------------------------------------------------------*/
+    /* 🔴 让两个下拉框紧密挨在一起 */
+    [data-testid="stSidebar"] div[data-testid="stSelectbox"] {
+        margin-bottom: -15px !important; 
+    }
+    
     [data-testid="stSidebar"] div[data-baseweb="select"] > div {
         background-color: #1E293B !important; /* 深灰色框 */
-        border: 1px solid rgba(255,255,255,0.1) !important;
+        border: 1px solid rgba(255,255,255,0.05) !important;
         border-radius: 8px !important;
         cursor: pointer;
     }
@@ -78,9 +83,9 @@ st.markdown("""
         margin-bottom: 10px !important;
     }
     [data-testid="stSidebar"] [data-testid="stExpander"] summary p {
-        font-size: 14px !important;
+        font-size: 15px !important;
         font-weight: bold !important;
-        color: #64748B !important;
+        color: #94A3B8 !important;
     }
     [data-testid="stSidebar"] [data-testid="stExpander"] summary svg {
         fill: #64748B !important;
@@ -396,10 +401,10 @@ def logout():
     st.rerun()
 
 # ==============================================================================
-# 🌐 左侧 SaaS 导航边栏 (高级黑/深空蓝风格)
+# 🌐 左侧 SaaS 导航边栏 (高级黑/深空蓝极简风格)
 # ==============================================================================
-menu_sel = "首页" # 默认值
-adm_direction = "物理方向" # 默认值
+menu_sel = "首页" # 防止报错默认值
+adm_direction = "物理方向" # 防止报错默认值
 
 if st.session_state.teacher_role:
     with st.sidebar:
@@ -413,17 +418,14 @@ if st.session_state.teacher_role:
         </div>
         """, unsafe_allow_html=True)
         
-        # 核心筛选器 (隐藏原始标题，用自定义的浅灰色小标题代替)
-        st.markdown("<p style='font-size: 13px; font-weight: bold; margin-bottom: -10px; color: #64748B;'>大区控制</p>", unsafe_allow_html=True)
+        # 核心筛选器 (🔴 极简无标题版，下拉框紧凑贴合)
         selected_grade = st.selectbox("隐藏标签1", ["高三", "高二", "高一"], index=["高三", "高二", "高一"].index(st.session_state.current_grade), label_visibility="collapsed")
-        
-        st.markdown("<br><p style='font-size: 13px; font-weight: bold; margin-bottom: -10px; margin-top:-15px; color: #64748B;'>群体筛选</p>", unsafe_allow_html=True)
         adm_direction = st.selectbox("隐藏标签2", ["物理方向", "历史方向", "综合方向"], label_visibility="collapsed")
         
-        st.divider()
+        st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
         
-        # 🔴 浅黑底色的悬浮下拉导航菜单 (完美解决白字看不清的问题)
-        with st.expander("🛠️ 系统功能导航", expanded=True):
+        # 🔴 浅黑底色的悬浮下拉导航菜单，更名为“考试分析”
+        with st.expander("📊 考试分析", expanded=True):
             menu_sel = option_menu(
                 menu_title=None,
                 options=["首页", "成绩明细表", "历次追踪分析", "AI 教研中心"],
@@ -441,7 +443,7 @@ if st.session_state.teacher_role:
             )
         
         st.divider()
-        st.button("🚪 安全退出当前账号", on_click=logout, use_container_width=True, type="secondary")
+        st.button("🚪 退出当前账号", on_click=logout, use_container_width=True, type="secondary")
         
         if selected_grade != st.session_state.current_grade:
             st.session_state.current_grade = selected_grade
@@ -540,7 +542,7 @@ else:
                 
                 metric_col = subject if (is_single_subject_view and subject in df_filtered.columns) else '总分'
                 
-                # 🔴 全科下拉切换组件 (仅班主任/教务可见)
+                # 全科下拉切换组件 (仅班主任/教务可见)
                 if not is_single_subject_view:
                     avail_metrics = ['总分'] + [s for s in ['语文','数学','英语','物理','化学','生物','历史','政治','地理'] if s in df_filtered.columns and df_filtered[s].sum() > 0]
                     st.markdown("<p style='font-size: 14px; font-weight: bold; color: #64748B; margin-bottom: -10px;'>⚡ 切换全局大盘分析指标</p>", unsafe_allow_html=True)
@@ -565,7 +567,7 @@ else:
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 
-                # 🔴 高颜值苗条多色柱状图 + 均分红线
+                # 高颜值苗条多色柱状图 + 均分红线
                 if not class_avgs.empty:
                     df_bar = class_avgs.reset_index().round(1)
                     # 使用马卡龙高级配色系
