@@ -15,7 +15,7 @@ import re
 st.set_page_config(page_title="英华教务教研指挥舱", layout="wide", page_icon="🏢", initial_sidebar_state="expanded")
 
 # ==============================================================================
-# 🎨 顶级 SaaS 美学 CSS 样式注入 (修复小白三角、暗黑退出按钮)
+# 🎨 顶级 SaaS 美学 CSS 样式注入 (彻底消灭白底与白三角)
 # ==============================================================================
 st.markdown("""
 <style>
@@ -84,29 +84,35 @@ st.markdown("""
     [data-testid="stSidebar"] [data-testid="stExpander"] summary svg {
         fill: #64748B !important;
     }
-    /* 🔴 关键修复：把浅黑色背景画在原生容器上，内嵌菜单完全透明，彻底告别小白角 */
+    /* 🔴 核心修复区：外层容器切圆角，隐藏溢出，彻底切掉内部的白色毛边和直角！ */
     [data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stExpanderDetails"] {
         background-color: #162032 !important; 
         border-radius: 10px !important;
-        padding: 5px !important; 
+        padding: 0 !important; 
+        overflow: hidden !important; 
+        border: 1px solid rgba(255,255,255,0.03) !important;
+    }
+    [data-testid="stSidebar"] iframe {
+        background-color: transparent !important;
     }
 
     /* =========================================================
-       4. 退出按钮暗黑化重塑 (告别白底)
+       4. 退出按钮暗黑化 (告别白底)
        ========================================================= */
-    [data-testid="stSidebar"] button[kind="secondary"] {
+    [data-testid="stSidebar"] div.stButton > button {
         background-color: #1E293B !important; /* 浅黑底色 */
         color: #94A3B8 !important; /* 浅灰文字 */
-        border: none !important;
+        border: 1px solid rgba(255,255,255,0.05) !important;
         border-radius: 8px !important;
         font-weight: bold !important;
         padding-top: 10px !important;
         padding-bottom: 10px !important;
         transition: all 0.3s ease;
     }
-    [data-testid="stSidebar"] button[kind="secondary"]:hover {
-        background-color: #334155 !important; /* 鼠标放上变亮 */
-        color: #F8FAFC !important; /* 文字变白 */
+    [data-testid="stSidebar"] div.stButton > button:hover {
+        background-color: #334155 !important; /* 鼠标悬停微微变亮 */
+        color: #F8FAFC !important; /* 文字变纯白 */
+        border-color: rgba(255,255,255,0.1) !important;
     }
 
     /* =========================================================
@@ -260,7 +266,7 @@ def build_master_df(grade_key):
     return master, latest_exam, exams
 
 # ==============================================================================
-# 🎨 导出与排版模块 (压缩表格行高)
+# 🎨 导出与排版模块
 # ==============================================================================
 def render_html_table(df):
     html = """
@@ -416,7 +422,7 @@ def logout():
     st.rerun()
 
 # ==============================================================================
-# 🌐 左侧 SaaS 导航边栏 (极致克制风)
+# 🌐 左侧 SaaS 导航边栏 (极简无毛边风)
 # ==============================================================================
 menu_sel = "首页" # 防止报错默认值
 adm_direction = "物理方向" # 防止报错默认值
@@ -425,7 +431,7 @@ if st.session_state.teacher_role:
     with st.sidebar:
         st.markdown(f"<h2 style='margin-top:-20px; padding-bottom: 10px;'>🏫 英华教务系统</h2>", unsafe_allow_html=True)
         
-        # 顶部：用户信息模块 (高级深邃卡片)
+        # 顶部：用户信息模块
         st.markdown(f"""
         <div style='background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%); padding: 18px; border-radius: 12px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 4px 12px rgba(0,0,0,0.2);'>
             <div style='color: #F8FAFC; font-size: 18px; font-weight: 800; letter-spacing: 1px;'>👨‍🏫 {st.session_state.teacher_name}</div>
@@ -433,13 +439,13 @@ if st.session_state.teacher_role:
         </div>
         """, unsafe_allow_html=True)
         
-        # 核心筛选器 (极简无标题，紧凑贴合)
+        # 核心筛选器
         selected_grade = st.selectbox("隐藏标签1", ["高三", "高二", "高一"], index=["高三", "高二", "高一"].index(st.session_state.current_grade), label_visibility="collapsed")
         adm_direction = st.selectbox("隐藏标签2", ["物理方向", "历史方向", "综合方向"], label_visibility="collapsed")
         
         st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
         
-        # 🔴 浅黑底色的悬浮下拉导航菜单 (完全消除小白三角，纯净透明)
+        # 🔴 浅黑底色的悬浮下拉导航菜单 (设置内部背景为 #162032 并且去除直角)
         with st.expander("📊 考试分析", expanded=True):
             menu_sel = option_menu(
                 menu_title=None,
@@ -448,17 +454,17 @@ if st.session_state.teacher_role:
                 menu_icon="cast",
                 default_index=0,
                 styles={
-                    # iframe 本身完全透明，背景颜色由上方的 CSS (stExpanderDetails) 提供
-                    "container": {"padding": "0!important", "background-color": "transparent"},
+                    # iframe内部底色填充为浅黑，无圆角以匹配外部容器的裁剪
+                    "container": {"padding": "5px 0!important", "background-color": "#162032", "border-radius": "0px", "border": "none"},
                     "icon": {"color": "#64748B", "font-size": "15px"},
-                    "nav-link": {"font-size": "14px", "text-align": "left", "margin":"0px 0", "color": "#64748B", "border-radius": "6px", "padding": "6px 15px"},
+                    "nav-link": {"font-size": "14px", "text-align": "left", "margin":"2px 10px", "color": "#64748B", "border-radius": "6px", "padding": "8px 15px"},
                     "nav-link-selected": {"background-color": "transparent", "color": "#F8FAFC", "font-weight": "bold"},
                     "nav-link:hover": {"background-color": "rgba(255,255,255,0.03)"}
                 }
             )
         
         st.divider()
-        # 🔴 退出按钮暗黑化，文字极简
+        # 🔴 极致暗黑版：退出按钮
         st.button("🚪 退出", on_click=logout, use_container_width=True, type="secondary")
         
         if selected_grade != st.session_state.current_grade:
