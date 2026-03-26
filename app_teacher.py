@@ -15,7 +15,7 @@ import re
 st.set_page_config(page_title="英华教务教研指挥舱", layout="wide", page_icon="🏢", initial_sidebar_state="expanded")
 
 # ==============================================================================
-# 🎨 顶级 SaaS 美学 CSS 样式注入
+# 🎨 顶级 SaaS 美学 CSS 样式注入 (极简、紧凑、去白边)
 # ==============================================================================
 st.markdown("""
 <style>
@@ -109,7 +109,7 @@ st.markdown("""
 CHART_CONFIG = {'displayModeBar': False, 'scrollZoom': False}
 
 # ==============================================================================
-# 🔐 权限与数据配置
+# 🔐 权限组定义
 # ==============================================================================
 GLOBAL_ROLES = ["校长", "副校长", "教学主任", "教务处"]
 SUBJECT_HEAD_ROLES = ["学科主任"]
@@ -118,6 +118,9 @@ HOMEROOM_ROLES = ["班主任"]
 
 if 'current_grade' not in st.session_state: st.session_state.current_grade = "高三"
 
+# ==============================================================================
+# 👑 核心引擎：动态读取配置与数据
+# ==============================================================================
 try:
     ADMIN_PASSWORD = st.secrets["ADMIN_PWD"]
     HOMEROOM_PASSWORD = st.secrets.get("HOMEROOM_PWD", ADMIN_PASSWORD) 
@@ -132,25 +135,35 @@ except Exception as e:
 if AI_API_KEY: client = openai.OpenAI(api_key=AI_API_KEY, base_url="https://api.deepseek.com")
 else: client = None
 
-# ==============================================================================
-# 🛠️ 核心引擎工具
-# ==============================================================================
-def clean_url(url): return str(url).strip() if pd.notna(url) and str(url).strip().lower() != 'nan' else ""
-def clean_str(val): return str(val).strip()[:-2] if pd.notna(val) and str(val).strip().endswith('.0') else str(val).strip() if pd.notna(val) else ""
-def clean_name(val): return str(val).replace(" ", "").strip() if pd.notna(val) else ""
-
-def normalize_class_name(c):
-    if pd.isna(c): return ""
-    c = str(c).replace(" ", "").strip()
-    for k, v in {'1':'一','2':'二','3':'三','4':'四','5':'五','6':'六','7':'七','8':'八','9':'九','0':'零'}.items(): c = c.replace(k, v)
-    c = c.replace("高三","").replace("高二","").replace("高一","").replace("年级","").replace("()","").replace("（）","")
-    if not c.endswith("班"): c += "班"
-    return c
+def clean_url(url):
+    if pd.isna(url): return ""
+    u = str(url).strip()
+    if u.lower() == 'nan': return ""
+    return u
 
 @st.cache_data(ttl=300)
 def load_exam_config(url):
     try: return pd.read_csv(url, on_bad_lines='skip')
     except: return pd.DataFrame()
+
+def normalize_class_name(c):
+    if pd.isna(c): return ""
+    c = str(c).replace(" ", "").strip()
+    mapping = {'1':'一','2':'二','3':'三','4':'四','5':'五','6':'六','7':'七','8':'八','9':'九','0':'零'}
+    for k, v in mapping.items(): c = c.replace(k, v)
+    c = c.replace("高三","").replace("高二","").replace("高一","").replace("年级","").replace("()","").replace("（）","")
+    if not c.endswith("班"): c += "班"
+    return c
+
+def clean_str(val):
+    if pd.isna(val): return ""
+    v = str(val).strip()
+    if v.endswith('.0'): v = v[:-2]
+    return v
+
+def clean_name(val):
+    if pd.isna(val): return ""
+    return str(val).replace(" ", "").strip()
 
 @st.cache_data(ttl=600)
 def load_data(url, header_lines=0):
@@ -167,9 +180,11 @@ def build_master_df(grade_key):
         for _, row in grade_config.iterrows():
             exams.append({
                 "name": str(row.get('考试名称', '')).strip(),
-                "语文": clean_url(row.get('语文')), "数学": clean_url(row.get('数学')), "英语": clean_url(row.get('英语')),
-                "物理": clean_url(row.get('物理')), "化学": clean_url(row.get('化学')), "生物": clean_url(row.get('生物')),
-                "历史": clean_url(row.get('历史')), "政治": clean_url(row.get('政治')), "地理": clean_url(row.get('地理'))
+                "语文": clean_url(row.get('语文')), "数学": clean_url(row.get('数学')),
+                "英语": clean_url(row.get('英语')), "物理": clean_url(row.get('物理')),
+                "化学": clean_url(row.get('化学')), "生物": clean_url(row.get('生物')),
+                "历史": clean_url(row.get('历史')), "政治": clean_url(row.get('政治')),
+                "地理": clean_url(row.get('地理'))
             })
     if not exams: return None, None, []
     
@@ -190,7 +205,15 @@ def build_master_df(grade_key):
                 if name_c and id_c:
                     res = []
                     for _, row in df_sub.iterrows():
-                        tot = sum(float(row[c]) for c in df_sub.columns if c not in [name_c, id_c, cls_c] and '总分' not in str(c) and '排名' not in str(c) and pd.notna(row[c]) and str(row[c]).replace('.','',1).isdigit())
+                        tot = 0
+                        for c in df_sub.columns:
+                            if c in [name_c, id_c, cls_c]: continue
+                            cstr = str(c[0]) if isinstance(c, tuple) else str(c)
+                            if '总分' in cstr or '排名' in cstr: continue
+                            try: 
+                                val = float(row[c])
+                                if pd.notna(val): tot += val
+                            except: pass
                         s_name = clean_name(row[name_c])
                         s_id = clean_str(row[id_c])
                         s_cls = normalize_class_name(row[cls_c]) if cls_c else "未分班"
@@ -214,6 +237,9 @@ def build_master_df(grade_key):
     master['总分年级排名'] = master.groupby(['方向'])['总分'].rank(ascending=False, method='min').fillna(0).astype(int)
     return master, latest_exam, exams
 
+# ==============================================================================
+# 🎨 导出与排版模块 (压缩表格行高)
+# ==============================================================================
 def render_html_table(df):
     html = """
     <div style="width: 100%; overflow-x: auto; margin-bottom: 25px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); border: 1px solid #E8E8E8; background: white;">
@@ -260,14 +286,17 @@ def generate_excel_download(df, filename_prefix, title_text):
                     cell.alignment = Alignment(horizontal="center", vertical="center")
                     cell.border = thin_border
                     if row_idx == 2:
-                        cell.fill = header_fill; cell.font = header_font
+                        cell.fill = header_fill
+                        cell.font = header_font
                     else:
-                        cell.fill = even_fill if row_idx % 2 == 0 else odd_fill; cell.font = Font(size=11)
+                        cell.fill = even_fill if row_idx % 2 == 0 else odd_fill
+                        cell.font = Font(size=11)
                     val_str = str(cell.value) if cell.value is not None else ""
                     val_len = sum(2 if ord(c)>127 else 1 for c in val_str)
                     if val_len > max_len: max_len = val_len
                 worksheet.column_dimensions[col_letter].width = max_len + 4
-            for row_idx in range(2, len(df) + 3): worksheet.row_dimensions[row_idx].height = 22
+            for row_idx in range(2, len(df) + 3):
+                worksheet.row_dimensions[row_idx].height = 22
         return buffer.getvalue(), f"{filename_prefix}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     except Exception as e:
         return df.to_csv(index=False).encode('utf-8-sig'), f"{filename_prefix}.csv", "text/csv"
@@ -279,27 +308,58 @@ def generate_ai_doc(title, content):
         from docx.oxml.ns import qn
         from docx.enum.text import WD_LINE_SPACING, WD_PARAGRAPH_ALIGNMENT
         doc = docx.Document()
-        style = doc.styles['Normal']; style.font.name = '仿宋'; style._element.rPr.rFonts.set(qn('w:eastAsia'), '仿宋'); style.font.size = Pt(10.5)
-        h = doc.add_heading(level=1); h.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER; run = h.add_run(title)
-        run.font.name = '黑体'; run._element.rPr.rFonts.set(qn('w:eastAsia'), '黑体'); run.font.size = Pt(14); run.font.color.rgb = docx.shared.RGBColor(0, 0, 0)
+        style = doc.styles['Normal']
+        style.font.name = '仿宋'
+        style._element.rPr.rFonts.set(qn('w:eastAsia'), '仿宋')
+        style.font.size = Pt(10.5)
+        
+        h = doc.add_heading(level=1)
+        h.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+        run = h.add_run(title)
+        run.font.name = '黑体'
+        run._element.rPr.rFonts.set(qn('w:eastAsia'), '黑体')
+        run.font.size = Pt(14)
+        run.font.color.rgb = docx.shared.RGBColor(0, 0, 0)
+
         def add_runs_to_paragraph(p, text):
-            for part in re.split(r'(\*\*.*?\*\*)', text):
-                r = p.add_run(part[2:-2].replace('*', '') if part.startswith('**') and part.endswith('**') else part.replace('*', ''))
-                if part.startswith('**'): r.bold = True
-                r.font.name = '仿宋'; r._element.rPr.rFonts.set(qn('w:eastAsia'), '仿宋'); r.font.size = Pt(10.5)
-        for line in content.split('\n'):
+            parts = re.split(r'(\*\*.*?\*\*)', text)
+            for part in parts:
+                if part.startswith('**') and part.endswith('**'):
+                    clean_text = part[2:-2].replace('*', '') 
+                    r = p.add_run(clean_text)
+                    r.bold = True
+                else:
+                    clean_text = part.replace('*', '')
+                    r = p.add_run(clean_text)
+                r.font.name = '仿宋'
+                r._element.rPr.rFonts.set(qn('w:eastAsia'), '仿宋')
+                r.font.size = Pt(10.5)
+
+        lines = content.split('\n')
+        for line in lines:
             line = line.strip()
             if not line: continue
-            if line.startswith('- ') or line.startswith('* '): line = line[2:].strip()
+            if line.startswith('- '): line = line[2:].strip()
+            if line.startswith('* '): line = line[2:].strip()
             line = line.replace('•', '').replace('·', '').strip()
-            p = doc.add_paragraph(); p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE 
             if line.startswith('#'):
                 level = 0
                 while level < len(line) and line[level] == '#': level += 1
-                r = p.add_run(line[level:].strip().replace('*', '')); r.bold = True; r.font.size = Pt(12); r.font.name = '黑体'; r._element.rPr.rFonts.set(qn('w:eastAsia'), '黑体')
+                text = line[level:].strip().replace('*', '')
+                p = doc.add_paragraph()
+                p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE 
+                r = p.add_run(text)
+                r.bold = True
+                r.font.size = Pt(12) 
+                r.font.name = '黑体'
+                r._element.rPr.rFonts.set(qn('w:eastAsia'), '黑体')
             else:
+                p = doc.add_paragraph()
+                p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE 
                 add_runs_to_paragraph(p, line)
-        buffer = io.BytesIO(); doc.save(buffer)
+
+        buffer = io.BytesIO()
+        doc.save(buffer)
         return buffer.getvalue(), f"{title}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     except:
         return f"【{title}】\n\n{content}".encode('utf-8-sig'), f"{title}.txt", "text/plain"
@@ -307,8 +367,18 @@ def generate_ai_doc(title, content):
 @st.cache_data(ttl=2592000, show_spinner=False)
 def get_ai_grouped_advice_for_teacher(grade, subject, grouped_data_str):
     if not client: return "⚠️ AI 尚未配置。"
-    prompt = f"你是资深的{grade}{subject}教研专家。以下是我所带班级薄弱知识点及对应的具体学生名单（得分率不足60%）：\n{grouped_data_str}\n请生成一份「精准靶向辅导与分层教学报告」，深度剖析并给出具体措施，必须自然提及学生名字。"
-    try: res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是精准教研专家AI。"}, {"role": "user", "content": prompt}]); return res.choices[0].message.content
+    prompt = f"""你是资深的{grade}{subject}教研专家。
+以下是我所带班级在本次考试中，各个薄弱知识点及对应的具体学生名单（仅列出了得分率不足 60% 的学生）：
+{grouped_data_str}
+请你基于以上真实数据，为我生成一份「精准靶向辅导与分层教学报告」。
+要求：
+1. 深度剖析：直接针对上述出现的薄弱点进行深度归类分析，指出学生在模型或思路上可能的错因。
+2. 靶向措施：给出具体、可操作的课堂补救和教学措施。
+3. 必须在建议中自然地提及对应的学生名字，让这份报告具有极强的落地实操性。
+"""
+    try:
+        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是精准教研专家AI。"}, {"role": "user", "content": prompt}])
+        return res.choices[0].message.content
     except: return "AI 生成失败"
 
 @st.cache_data(ttl=2592000, show_spinner=False)
@@ -326,17 +396,20 @@ def get_ai_compare_advice(sheet_a, sheet_b, metric, class_avg_str, top_improvers
 {bottom_regressors_str}
 
 请深度分析各班表现差异可能的原因，并在表扬进步学生的同时，给出极具落地性的教务管理调整建议和培优补差措施。结构要清晰，语言专业且富有激励性。"""
-    try: res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是资深教务数据分析AI。"}, {"role": "user", "content": prompt}]); return res.choices[0].message.content
+    try:
+        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是资深教务数据分析AI。"}, {"role": "user", "content": prompt}])
+        return res.choices[0].message.content
     except: return "AI 生成失败"
 
 # ==============================================================================
-# 🌟 智能表头解析与定位
+# 🌟 智能表头解析与定位 (修复优先级Bug，避免单科误抓总分)
 # ==============================================================================
 def smart_parse_excel(uploaded_file, sheet_name):
     df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=[0, 1])
     new_cols = []
     for c in df.columns:
-        c0, c1 = str(c[0]).strip(), str(c[1]).strip()
+        c0 = str(c[0]).strip()
+        c1 = str(c[1]).strip()
         if 'Unnamed' in c0: c0 = ''
         if 'Unnamed' in c1: c1 = ''
         if c0 and c1 and c0 != c1: new_cols.append(f"{c0}_{c1}")
@@ -347,8 +420,9 @@ def smart_parse_excel(uploaded_file, sheet_name):
     return df
 
 def find_target_column(df_columns, keywords):
-    for col in df_columns:
-        for kw in keywords:
+    # 🔴 关键修复：必须优先遍历 keywords 列表！这样排在前面的精确关键字才会优先被命中
+    for kw in keywords:
+        for col in df_columns:
             if kw in col: return col
     return None
 
@@ -373,6 +447,7 @@ adm_direction = "物理方向"
 if st.session_state.teacher_role:
     with st.sidebar:
         st.markdown(f"<h2 style='margin-top:-20px; padding-bottom: 10px;'>🏫 英华教务系统</h2>", unsafe_allow_html=True)
+        
         st.markdown(f"""
         <div style='background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%); padding: 18px; border-radius: 12px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 4px 12px rgba(0,0,0,0.2);'>
             <div style='color: #F8FAFC; font-size: 18px; font-weight: 800; letter-spacing: 1px;'>👨‍🏫 {st.session_state.teacher_name}</div>
@@ -382,6 +457,7 @@ if st.session_state.teacher_role:
         
         selected_grade = st.selectbox("隐藏标签1", ["高三", "高二", "高一"], index=["高三", "高二", "高一"].index(st.session_state.current_grade), label_visibility="collapsed")
         adm_direction = st.selectbox("隐藏标签2", ["物理方向", "历史方向", "综合方向"], label_visibility="collapsed")
+        
         st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
         
         base_options = ["首页", "成绩明细表", "历次追踪分析", "AI 教研中心"]
@@ -393,7 +469,11 @@ if st.session_state.teacher_role:
         
         with st.expander("📊 考试分析", expanded=True):
             menu_sel = option_menu(
-                menu_title=None, options=base_options, icons=base_icons, menu_icon="cast", default_index=0,
+                menu_title=None,
+                options=base_options,
+                icons=base_icons,
+                menu_icon="cast",
+                default_index=0,
                 styles={
                     "container": {"padding": "5px 0!important", "background-color": "#162032", "border-radius": "0px", "border": "none"},
                     "icon": {"color": "#64748B", "font-size": "15px"},
@@ -402,6 +482,7 @@ if st.session_state.teacher_role:
                     "nav-link:hover": {"background-color": "rgba(255,255,255,0.03)"}
                 }
             )
+        
         st.divider()
         st.button("🚪 退出", on_click=logout, use_container_width=True, type="secondary")
         
@@ -410,7 +491,7 @@ if st.session_state.teacher_role:
             st.rerun()
 
 # ==============================================================================
-# 🚪 登录界面
+# 🚪 登录界面 (未登录状态)
 # ==============================================================================
 if not st.session_state.teacher_role:
     st.markdown("<br><br><br>", unsafe_allow_html=True)
@@ -420,16 +501,20 @@ if not st.session_state.teacher_role:
             st.markdown(f"<h2 style='text-align: center; color: #0F172A; margin-bottom: 30px; font-weight: 800;'>🏫 英华数据指挥舱</h2>", unsafe_allow_html=True)
             t_name = st.text_input("👤 教职工姓名 (需与学校花名册一致)")
             pwd = st.text_input("🔐 访问密码", type="password")
+            
             selected_grade = st.session_state.current_grade 
+            
             if st.form_submit_button("安全验证并进入", use_container_width=True):
                 try: roster_df = pd.read_csv(URL_TEACHER_ROSTER, on_bad_lines='skip')
                 except: roster_df = None
+                
                 if roster_df is not None and '教师姓名' in roster_df.columns:
                     t_info = roster_df[roster_df['教师姓名'].astype(str).str.strip() == t_name.strip()]
                     if not t_info.empty:
                         info = t_info.iloc[0]
                         actual_role = str(info.get('角色', '')).strip()
                         is_auth = False
+                        
                         if actual_role in GLOBAL_ROLES and pwd == ADMIN_PASSWORD: is_auth = True
                         elif actual_role in HOMEROOM_ROLES and (pwd == HOMEROOM_PASSWORD or pwd == ADMIN_PASSWORD): is_auth = True
                         elif actual_role in SUBJECT_HEAD_ROLES and (pwd == TEACHER_PASSWORD or pwd == ADMIN_PASSWORD): is_auth = True
@@ -463,7 +548,7 @@ else:
     """, unsafe_allow_html=True)
     
     # =========================================================================
-    # 👑 专属特权模块：本地多考对比分析 (动态表头、双维名次、高亮、AI生成)
+    # 👑 专属特权模块：本地多考对比分析
     # =========================================================================
     if menu_sel == "本地多考对比":
         st.info("💡 请上传由大型联考判卷系统导出的多 Sheet 成绩表，系统将自动解析双层表头、计算进退步，并生成 AI 全校报告。")
@@ -489,20 +574,22 @@ else:
                         name_col_a = find_target_column(df_a.columns, ['姓名', '名字'])
                         name_col_b = find_target_column(df_b.columns, ['姓名', '名字'])
                         
+                        # 🔴 修复：精确分离“总分”与“单科”的关键字隔离区！
                         if compare_metric == "总分":
                             metric_kws = ['总分赋分_分数', '总分_分数', '总分', '成绩', '赋分']
+                            rank_kws = ['总分赋分_校名', '总分赋分_排名', '总分_校排', '总分_名次', '总分_校名', '总分_排名', '校名', '排名', '名次', '校排']
                         else:
                             metric_kws = [f'{compare_metric}_分数', f'{compare_metric}_赋分', compare_metric]
+                            # 单科绝对禁止使用泛化关键字，防止误抓总分排名！
+                            rank_kws = [f'{compare_metric}_校名', f'{compare_metric}_排名', f'{compare_metric}_校排', f'{compare_metric}_名次']
                             
                         score_col_a = find_target_column(df_a.columns, metric_kws)
                         score_col_b = find_target_column(df_b.columns, metric_kws)
                         
-                        # 🔴 抓取“校名次”列
-                        rank_kws = [f'{compare_metric}_校名', f'{compare_metric}_校排', f'{compare_metric}_名次', f'{compare_metric}_排名', '总分赋分_校名', '总分_校名', '校名', '排名', '名次', '校排']
                         rank_col_a = find_target_column(df_a.columns, rank_kws)
                         rank_col_b = find_target_column(df_b.columns, rank_kws)
                         
-                        class_col_b = find_target_column(df_b.columns, ['班级', '班名', '行政班'])
+                        class_col_b = find_target_column(df_b.columns, ['班级', '行政班', '总分赋分_班名', '总分_班名', '班名'])
                         
                         if not all([name_col_a, name_col_b, score_col_a, score_col_b]):
                             st.error(f"❌ 无法从表格中自动识别到「姓名」或「{compare_metric}」列，请检查 Excel 格式是否标准。")
