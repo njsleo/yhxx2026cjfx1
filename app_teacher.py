@@ -184,7 +184,7 @@ def build_master_df(grade_key):
     return master, latest_exam, exams
 
 # ==============================================================================
-# 🎨 导出与排版引擎 (分班 Sheet 已恢复)
+# 🎨 导出与排版引擎
 # ==============================================================================
 def render_html_table(df):
     html = """
@@ -288,7 +288,7 @@ def generate_ai_doc(title, content):
         return f"【{title}】\n\n{content}".encode('utf-8-sig'), f"{title}.txt", "text/plain"
 
 # ==============================================================================
-# 🧠 动态 AI 引擎 (已恢复总分/单科指令区分)
+# 🧠 动态 AI 引擎
 # ==============================================================================
 @st.cache_data(ttl=2592000, show_spinner=False)
 def get_ai_grouped_advice_for_teacher(grade, subject, grouped_data_str):
@@ -301,30 +301,23 @@ def get_ai_grouped_advice_for_teacher(grade, subject, grouped_data_str):
 def get_ai_compare_advice(sheet_a, sheet_b, metric, class_avg_str, top_improvers_str, bottom_regressors_str):
     if not client: return "⚠️ AI 尚未配置。"
     
-    if metric == "总分":
-        focus_instruction = "【分析方向指令】：本次对比的是「总分」。请从各科均衡发展、时间分配、考试心态、整体复习策略等宏观教务管理角度，为年级主任和班主任提供策略。"
-    else:
-        focus_instruction = f"【分析方向指令】：本次对比的是单科「{metric}」。请深入该学科的知识体系（如{metric}的题型、核心素养、常见易错点），从微观教研、课堂教学改进、单科培优补差等专业学科角度，为{metric}备课组和任课教师提供落地方案。"
+    if metric == "总分": focus_instruction = "【分析方向指令】：本次对比的是「总分」。请从各科均衡发展、时间分配、考试心态、整体复习策略等宏观教务管理角度，为年级主任和班主任提供策略。"
+    else: focus_instruction = f"【分析方向指令】：本次对比的是单科「{metric}」。请深入该学科的知识体系，从微观教研、课堂教学改进、单科培优补差等专业学科角度，为{metric}备课组和任课教师提供落地方案。"
 
     prompt = f"""你是资深的高中教务数据分析专家。请基于以下真实考试数据，生成一份【{sheet_b}】对比【{sheet_a}】的【{metric}】学情进退步诊断报告。
-
 {focus_instruction}
-
 1. 各班【{metric}】平均进步幅度：
 {class_avg_str}
-
 2. 【{metric}】全校进步飞跃榜（表扬与经验总结）：
 {top_improvers_str}
-
 3. 【{metric}】需重点关注的退步生预警（归因与辅导建议）：
 {bottom_regressors_str}
-
 请使用专业、干练的语言，结构化输出报告，给出极具落地性的教研调整建议。"""
     try: res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是资深教务数据分析AI。"}, {"role": "user", "content": prompt}]); return res.choices[0].message.content
     except: return "AI 生成失败"
 
 # ==============================================================================
-# 🌟 智能解析器缓存提速 (极速无感加载)
+# 🌟 智能解析器缓存提速
 # ==============================================================================
 @st.cache_data(ttl=600, show_spinner=False)
 def smart_parse_excel(file_bytes, sheet_name):
@@ -450,17 +443,16 @@ else:
     """, unsafe_allow_html=True)
     
     # =========================================================================
-    # 👑 专属特权模块：本地多考对比分析 (无感极速刷新，彻底告别闪退)
+    # 👑 专属特权模块：本地多考对比分析
     # =========================================================================
     if menu_sel == "本地多考对比":
         st.info("💡 请上传由大型联考判卷系统导出的多 Sheet 成绩表，下拉选框后数据将**极速自动生成**！")
-        
         uploaded_file = st.file_uploader("📥 上传判卷系统 Excel 成绩表 (.xlsx / .xls)", type=["xlsx", "xls"])
         
         if uploaded_file:
             excel_data = pd.ExcelFile(uploaded_file)
             sheet_names = excel_data.sheet_names
-            file_bytes = uploaded_file.getvalue() # 转换为字节流以支持极速缓存
+            file_bytes = uploaded_file.getvalue() 
             
             with st.container(border=True):
                 st.markdown("<p style='font-size: 15px; font-weight: bold; color: #0F172A;'>⚙️ 跨考比对引擎设置</p>", unsafe_allow_html=True)
@@ -469,7 +461,6 @@ else:
                 sheet_b = col2.selectbox("对比考试 (如：一模)", sheet_names, index=min(1, len(sheet_names)-1))
                 compare_metric = col3.selectbox("🎯 对比指标 (总分或单科)", ["总分", "语文", "数学", "英语", "物理", "化学", "生物", "历史", "政治", "地理"])
                 
-                # 🚫 彻底去除了引发闪退的 st.button("启动分析")，改为极速直出！
                 df_a = smart_parse_excel(file_bytes, sheet_a)
                 df_b = smart_parse_excel(file_bytes, sheet_b)
                 
@@ -529,7 +520,6 @@ else:
                             disp_cols.append('排名进步')
                         disp_df = merged_df[disp_cols].sort_values('分数进步', ascending=False)
                         
-                        # 渲染可视化
                         st.markdown("---")
                         st.markdown(f"#### 🎯 【{sheet_b}】较【{sheet_a}】【{compare_metric}】全景分析")
                         
@@ -570,13 +560,10 @@ else:
                             fig.update_layout(dragmode=False, plot_bgcolor='rgba(248, 250, 252, 0.5)', paper_bgcolor='white', margin=dict(t=20, b=20, l=20, r=20), height=450, xaxis_title=f"X: {sheet_a} {compare_metric}", yaxis_title=f"Y: {sheet_b} {compare_metric}")
                             st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
 
-                        # ==========================================
-                        # 🤖 顶级外层：AI 智能诊断生成
-                        # ==========================================
+                        # AI
                         st.divider()
                         st.markdown("#### 🧠 全校学情进退步 AI 分析决策")
                         ai_compare_key = f"ai_comp_{sheet_a}_{sheet_b}_{compare_metric}"
-                        
                         if st.button("✨ 一键生成全校质量分析报告 (基于底层数据的深层洞察)"):
                             with st.spinner("AI 正在汇聚全校班级数据，深度构建教学建议报告..."):
                                 class_avg_str = "\n".join([f"- 【{r['班级']}】平均波动: {r['分数进步']}分" for _, r in class_avg_progress.iterrows()])
@@ -628,7 +615,9 @@ else:
             else:
                 is_single_subject_view = role in TEACHER_ROLES + SUBJECT_HEAD_ROLES
                 
+                # =====================================================================
                 # 常规一：首页
+                # =====================================================================
                 if menu_sel == "首页":
                     total_stu = len(df_filtered)
                     class_count = df_filtered['班级'].nunique()
@@ -662,7 +651,78 @@ else:
                         fig_bar.update_layout(dragmode=False, showlegend=False, yaxis_range=[0, y_max], plot_bgcolor='rgba(248, 250, 252, 0.5)', paper_bgcolor='white', margin=dict(t=60, b=30, l=30, r=30), xaxis_title=None, yaxis_title=None, yaxis=dict(showgrid=True, gridcolor='#F1F5F9', gridwidth=1))
                         with st.container(border=True): st.plotly_chart(fig_bar, use_container_width=True, config=CHART_CONFIG)
 
+                    # =====================================================================
+                    # 🎯 新增：上线率达标全景分析
+                    # =====================================================================
+                    st.markdown("<p style='font-size: 16px; font-weight: bold; color: #0F172A; margin-top: 30px;'>🎯 【目标考核】上线率达标监控</p>", unsafe_allow_html=True)
+                    with st.container(border=True):
+                        c_l1, c_l2, c_l3 = st.columns([1, 1, 2])
+                        line_te = c_l1.number_input(f"🏆 设定【{metric_col}】特控线", min_value=0.0, value=0.0, step=1.0)
+                        line_ben = c_l2.number_input(f"🎓 设定【{metric_col}】本科线", min_value=0.0, value=0.0, step=1.0)
+
+                        if line_te > 0 or line_ben > 0:
+                            pass_te_all = len(df_filtered[df_filtered[metric_col] >= line_te]) if line_te > 0 else 0
+                            pass_ben_all = len(df_filtered[df_filtered[metric_col] >= line_ben]) if line_ben > 0 else 0
+
+                            rate_te_all = round(pass_te_all / total_stu * 100, 1) if total_stu > 0 else 0
+                            rate_ben_all = round(pass_ben_all / total_stu * 100, 1) if total_stu > 0 else 0
+
+                            st.markdown(f"""
+                            <div style='background-color: #F8FAFC; padding: 15px; border-radius: 8px; border-left: 4px solid #10B981; margin-top: 5px; margin-bottom: 20px;'>
+                                <span style='font-size: 15px; color: #334155;'><b>🌐 群体整体达标概况：</b></span><br>
+                                <span style='font-size: 14px; color: #64748B;'>
+                                🏆 特控上线总计 <b>{pass_te_all}</b> 人 (上线率 <b style='color:#10B981;'>{rate_te_all}%</b>) &nbsp;&nbsp;|&nbsp;&nbsp; 
+                                🎓 本科上线总计 <b>{pass_ben_all}</b> 人 (上线率 <b style='color:#3B82F6;'>{rate_ben_all}%</b>)
+                                </span>
+                            </div>
+                            """, unsafe_allow_html=True)
+
+                            class_stats = []
+                            for cls in sorted(df_filtered['班级'].unique()):
+                                cdf = df_filtered[df_filtered['班级'] == cls]
+                                c_total = len(cdf)
+                                row_dict = {'班级': cls, '参考人数': c_total}
+                                
+                                if line_te > 0:
+                                    c_te = len(cdf[cdf[metric_col] >= line_te])
+                                    row_dict['特控上线数'] = c_te
+                                    row_dict['特控上线率(%)'] = round(c_te / c_total * 100, 1) if c_total > 0 else 0
+                                    
+                                if line_ben > 0:
+                                    c_ben = len(cdf[cdf[metric_col] >= line_ben])
+                                    row_dict['本科上线数'] = c_ben
+                                    row_dict['本科上线率(%)'] = round(c_ben / c_total * 100, 1) if c_total > 0 else 0
+                                    
+                                class_stats.append(row_dict)
+
+                            df_stats = pd.DataFrame(class_stats)
+                            if line_te > 0: df_stats = df_stats.sort_values('特控上线率(%)', ascending=False)
+                            else: df_stats = df_stats.sort_values('本科上线率(%)', ascending=False)
+
+                            html_stats = "<div style='width: 100%; overflow-x: auto; border-radius: 8px; border: 1px solid #E8E8E8;'><table style='width: 100%; border-collapse: collapse; font-size: 14px; text-align: center;'>"
+                            html_stats += "<tr><th style='background-color: #FAFAFA; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #333;'>班级</th><th style='background-color: #FAFAFA; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #333;'>参考人数</th>"
+                            if line_te > 0: html_stats += "<th style='background-color: #FFFBEB; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #92400E;'>特控上线数</th><th style='background-color: #FFFBEB; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #92400E;'>特控上线率</th>"
+                            if line_ben > 0: html_stats += "<th style='background-color: #F0F9FF; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #0369A1;'>本科上线数</th><th style='background-color: #F0F9FF; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #0369A1;'>本科上线率</th>"
+                            html_stats += "</tr>"
+
+                            for _, r in df_stats.iterrows():
+                                html_stats += f"<tr><td style='padding: 8px; border-bottom: 1px solid #F0F0F0;'><b>{r['班级']}</b></td><td style='padding: 8px; border-bottom: 1px solid #F0F0F0;'>{r['参考人数']}</td>"
+                                if line_te > 0: html_stats += f"<td style='padding: 8px; border-bottom: 1px solid #F0F0F0; color:#B45309; font-weight:bold;'>{r['特控上线数']}</td><td style='padding: 8px; border-bottom: 1px solid #F0F0F0; color:#B45309;'>{r['特控上线率(%)']}%</td>"
+                                if line_ben > 0: html_stats += f"<td style='padding: 8px; border-bottom: 1px solid #F0F0F0; color:#0284C7; font-weight:bold;'>{r['本科上线数']}</td><td style='padding: 8px; border-bottom: 1px solid #F0F0F0; color:#0284C7;'>{r['本科上线率(%)']}%</td>"
+                                html_stats += "</tr>"
+                            html_stats += "</table></div>"
+
+                            st.markdown(html_stats, unsafe_allow_html=True)
+                            
+                            file_data, file_name, mime_type = generate_excel_download(df_stats, f"上线率统计_{metric_col}", f"【{LATEST_EXAM['name']}】{metric_col}上线率报表")
+                            st.download_button(label="📥 下载各班上线率统计报表 (Excel)", data=file_data, file_name=file_name, mime=mime_type, type="secondary")
+                            
+                        else:
+                            st.info(f"👆 请在上方输入框内设定【{metric_col}】的「特控线」或「本科线」（输入大于0的数字），系统将立即为您进行群体及各班的达标率动态测算。")
+
+                # =====================================================================
                 # 常规二：成绩明细表
+                # =====================================================================
                 elif menu_sel == "成绩明细表":
                     if is_single_subject_view:
                         st.info(f"💡 当前为学科专属视图，仅展示【{subject}】的单科成绩及排名。")
@@ -684,7 +744,9 @@ else:
                         file_data, file_name, mime_type = generate_excel_download(table_to_show, f"【{st.session_state.current_grade}】_{adm_direction}全科明细", f"【{LATEST_EXAM['name']}】{adm_direction}成绩汇总单", split_by_class=True)
                         st.download_button(label="📥 下载全科 Excel 汇总单 (内含各班分表)", data=file_data, file_name=file_name, mime=mime_type, type="primary")
 
+                # =====================================================================
                 # 常规三：历次追踪分析
+                # =====================================================================
                 elif menu_sel == "历次追踪分析":
                     st.info("🔍 在下方下拉框中搜索学生姓名，系统将跨越“时间胶囊”自动聚合该生的所有历史轨迹！")
                     student_options = df_filtered.apply(lambda x: f"{x['班级']} | {x['姓名']} | 考号:{x['考号']}", axis=1).tolist()
@@ -755,7 +817,9 @@ else:
                                                 fig3.update_layout(dragmode=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', yaxis=dict(showgrid=True, gridcolor='#F1F5F9'))
                                                 st.plotly_chart(fig3, use_container_width=True, config=CHART_CONFIG)
 
+                # =====================================================================
                 # 常规四：AI 教研中心
+                # =====================================================================
                 elif menu_sel == "AI 教研中心":
                     st.info("🧠 欢迎进入 AI 教研舱。系统将自动抓取底层题库，计算全班单题得分率，并进行智能聚类！")
                     analyze_subject = subject
