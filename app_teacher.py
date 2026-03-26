@@ -15,7 +15,7 @@ import re
 st.set_page_config(page_title="英华教务教研指挥舱", layout="wide", page_icon="🏢", initial_sidebar_state="expanded")
 
 # ==============================================================================
-# 🎨 顶级 SaaS 美学 CSS 样式注入 (极简、紧凑、去白边)
+# 🎨 顶级 SaaS 美学 CSS 样式注入
 # ==============================================================================
 st.markdown("""
 <style>
@@ -26,9 +26,6 @@ st.markdown("""
     .block-container { padding-top: 1rem !important; padding-bottom: 2rem !important; max-width: 96% !important;}
     .stApp { background-color: #F4F7F9; }
     
-    /* =========================================================
-       1. 侧边栏瘦身与底色
-       ========================================================= */
     [data-testid="stSidebar"] {
         min-width: 250px !important; 
         max-width: 250px !important;
@@ -45,9 +42,6 @@ st.markdown("""
         margin-top: 10px !important; margin-bottom: 10px !important;
     }
 
-    /* =========================================================
-       2. 下拉框 (Selectbox) 彻底暗黑化
-       ========================================================= */
     [data-testid="stSidebar"] div[data-testid="stSelectbox"] {
         margin-bottom: -15px !important; 
     }
@@ -62,72 +56,40 @@ st.markdown("""
     [data-testid="stSidebar"] div[data-baseweb="select"] svg {
         fill: #94A3B8 !important;
     }
-    ul[role="listbox"] {
-        background-color: #1E293B !important;
-    }
-    li[role="option"] {
-        background-color: #1E293B !important;
-        color: #E2E8F0 !important;
-    }
-    li[role="option"]:hover {
-        background-color: #334155 !important;
-    }
+    ul[role="listbox"] { background-color: #1E293B !important; }
+    li[role="option"] { background-color: #1E293B !important; color: #E2E8F0 !important; }
+    li[role="option"]:hover { background-color: #334155 !important; }
 
-    /* =========================================================
-       3. 导航折叠面板：去白底、去毛边、极致紧凑
-       ========================================================= */
     [data-testid="stSidebar"] [data-testid="stExpander"] {
-        border: none !important;
-        background: transparent !important;
+        border: none !important; background: transparent !important;
     }
     [data-testid="stSidebar"] [data-testid="stExpander"] details, 
     [data-testid="stSidebar"] [data-testid="stExpander"] summary {
-        background: transparent !important;
-        border: none !important;
-        padding: 0 !important;
-        margin-bottom: 5px !important;
+        background: transparent !important; border: none !important;
+        padding: 0 !important; margin-bottom: 5px !important;
     }
     [data-testid="stSidebar"] [data-testid="stExpander"] summary p {
-        font-size: 15px !important;
-        font-weight: bold !important;
-        color: #94A3B8 !important;
+        font-size: 15px !important; font-weight: bold !important; color: #94A3B8 !important;
     }
     [data-testid="stSidebar"] [data-testid="stExpander"] summary svg {
         fill: #64748B !important;
     }
     [data-testid="stSidebar"] [data-testid="stExpander"] [data-testid="stExpanderDetails"] {
-        background-color: #162032 !important; 
-        border-radius: 10px !important;
-        padding: 0 !important; 
-        overflow: hidden !important; 
-        border: 1px solid rgba(255,255,255,0.03) !important;
+        background-color: #162032 !important; border-radius: 10px !important;
+        padding: 0 !important; overflow: hidden !important; border: 1px solid rgba(255,255,255,0.03) !important;
     }
-    [data-testid="stSidebar"] iframe {
-        background-color: transparent !important;
-    }
+    [data-testid="stSidebar"] iframe { background-color: transparent !important; }
 
-    /* =========================================================
-       4. 退出按钮暗黑化
-       ========================================================= */
     [data-testid="stSidebar"] div.stButton > button {
-        background-color: #1E293B !important; 
-        color: #94A3B8 !important; 
-        border: 1px solid rgba(255,255,255,0.05) !important;
-        border-radius: 8px !important;
-        font-weight: bold !important;
-        padding-top: 10px !important;
-        padding-bottom: 10px !important;
+        background-color: #1E293B !important; color: #94A3B8 !important; 
+        border: 1px solid rgba(255,255,255,0.05) !important; border-radius: 8px !important;
+        font-weight: bold !important; padding-top: 10px !important; padding-bottom: 10px !important;
         transition: all 0.3s ease;
     }
     [data-testid="stSidebar"] div.stButton > button:hover {
-        background-color: #334155 !important; 
-        color: #F8FAFC !important; 
-        border-color: rgba(255,255,255,0.1) !important;
+        background-color: #334155 !important; color: #F8FAFC !important; border-color: rgba(255,255,255,0.1) !important;
     }
 
-    /* =========================================================
-       5. 右侧内容区美化
-       ========================================================= */
     .header-card {
         background-color: #FFFFFF; padding: 15px 25px; border-radius: 10px;
         box-shadow: 0 2px 10px rgba(0,0,0,0.03); display: flex; justify-content: space-between;
@@ -147,7 +109,7 @@ st.markdown("""
 CHART_CONFIG = {'displayModeBar': False, 'scrollZoom': False}
 
 # ==============================================================================
-# 🔐 权限组定义
+# 🔐 权限与数据配置
 # ==============================================================================
 GLOBAL_ROLES = ["校长", "副校长", "教学主任", "教务处"]
 SUBJECT_HEAD_ROLES = ["学科主任"]
@@ -156,9 +118,6 @@ HOMEROOM_ROLES = ["班主任"]
 
 if 'current_grade' not in st.session_state: st.session_state.current_grade = "高三"
 
-# ==============================================================================
-# 👑 核心引擎：动态读取配置与数据
-# ==============================================================================
 try:
     ADMIN_PASSWORD = st.secrets["ADMIN_PWD"]
     HOMEROOM_PASSWORD = st.secrets.get("HOMEROOM_PWD", ADMIN_PASSWORD) 
@@ -173,35 +132,25 @@ except Exception as e:
 if AI_API_KEY: client = openai.OpenAI(api_key=AI_API_KEY, base_url="https://api.deepseek.com")
 else: client = None
 
-def clean_url(url):
-    if pd.isna(url): return ""
-    u = str(url).strip()
-    if u.lower() == 'nan': return ""
-    return u
+# ==============================================================================
+# 🛠️ 核心引擎工具
+# ==============================================================================
+def clean_url(url): return str(url).strip() if pd.notna(url) and str(url).strip().lower() != 'nan' else ""
+def clean_str(val): return str(val).strip()[:-2] if pd.notna(val) and str(val).strip().endswith('.0') else str(val).strip() if pd.notna(val) else ""
+def clean_name(val): return str(val).replace(" ", "").strip() if pd.notna(val) else ""
+
+def normalize_class_name(c):
+    if pd.isna(c): return ""
+    c = str(c).replace(" ", "").strip()
+    for k, v in {'1':'一','2':'二','3':'三','4':'四','5':'五','6':'六','7':'七','8':'八','9':'九','0':'零'}.items(): c = c.replace(k, v)
+    c = c.replace("高三","").replace("高二","").replace("高一","").replace("年级","").replace("()","").replace("（）","")
+    if not c.endswith("班"): c += "班"
+    return c
 
 @st.cache_data(ttl=300)
 def load_exam_config(url):
     try: return pd.read_csv(url, on_bad_lines='skip')
     except: return pd.DataFrame()
-
-def normalize_class_name(c):
-    if pd.isna(c): return ""
-    c = str(c).replace(" ", "").strip()
-    mapping = {'1':'一','2':'二','3':'三','4':'四','5':'五','6':'六','7':'七','8':'八','9':'九','0':'零'}
-    for k, v in mapping.items(): c = c.replace(k, v)
-    c = c.replace("高三","").replace("高二","").replace("高一","").replace("年级","").replace("()","").replace("（）","")
-    if not c.endswith("班"): c += "班"
-    return c
-
-def clean_str(val):
-    if pd.isna(val): return ""
-    v = str(val).strip()
-    if v.endswith('.0'): v = v[:-2]
-    return v
-
-def clean_name(val):
-    if pd.isna(val): return ""
-    return str(val).replace(" ", "").strip()
 
 @st.cache_data(ttl=600)
 def load_data(url, header_lines=0):
@@ -218,11 +167,9 @@ def build_master_df(grade_key):
         for _, row in grade_config.iterrows():
             exams.append({
                 "name": str(row.get('考试名称', '')).strip(),
-                "语文": clean_url(row.get('语文')), "数学": clean_url(row.get('数学')),
-                "英语": clean_url(row.get('英语')), "物理": clean_url(row.get('物理')),
-                "化学": clean_url(row.get('化学')), "生物": clean_url(row.get('生物')),
-                "历史": clean_url(row.get('历史')), "政治": clean_url(row.get('政治')),
-                "地理": clean_url(row.get('地理'))
+                "语文": clean_url(row.get('语文')), "数学": clean_url(row.get('数学')), "英语": clean_url(row.get('英语')),
+                "物理": clean_url(row.get('物理')), "化学": clean_url(row.get('化学')), "生物": clean_url(row.get('生物')),
+                "历史": clean_url(row.get('历史')), "政治": clean_url(row.get('政治')), "地理": clean_url(row.get('地理'))
             })
     if not exams: return None, None, []
     
@@ -243,15 +190,7 @@ def build_master_df(grade_key):
                 if name_c and id_c:
                     res = []
                     for _, row in df_sub.iterrows():
-                        tot = 0
-                        for c in df_sub.columns:
-                            if c in [name_c, id_c, cls_c]: continue
-                            cstr = str(c[0]) if isinstance(c, tuple) else str(c)
-                            if '总分' in cstr or '排名' in cstr: continue
-                            try: 
-                                val = float(row[c])
-                                if pd.notna(val): tot += val
-                            except: pass
+                        tot = sum(float(row[c]) for c in df_sub.columns if c not in [name_c, id_c, cls_c] and '总分' not in str(c) and '排名' not in str(c) and pd.notna(row[c]) and str(row[c]).replace('.','',1).isdigit())
                         s_name = clean_name(row[name_c])
                         s_id = clean_str(row[id_c])
                         s_cls = normalize_class_name(row[cls_c]) if cls_c else "未分班"
@@ -275,9 +214,6 @@ def build_master_df(grade_key):
     master['总分年级排名'] = master.groupby(['方向'])['总分'].rank(ascending=False, method='min').fillna(0).astype(int)
     return master, latest_exam, exams
 
-# ==============================================================================
-# 🎨 导出与排版模块 (压缩表格行高)
-# ==============================================================================
 def render_html_table(df):
     html = """
     <div style="width: 100%; overflow-x: auto; margin-bottom: 25px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); border: 1px solid #E8E8E8; background: white;">
@@ -324,17 +260,14 @@ def generate_excel_download(df, filename_prefix, title_text):
                     cell.alignment = Alignment(horizontal="center", vertical="center")
                     cell.border = thin_border
                     if row_idx == 2:
-                        cell.fill = header_fill
-                        cell.font = header_font
+                        cell.fill = header_fill; cell.font = header_font
                     else:
-                        cell.fill = even_fill if row_idx % 2 == 0 else odd_fill
-                        cell.font = Font(size=11)
+                        cell.fill = even_fill if row_idx % 2 == 0 else odd_fill; cell.font = Font(size=11)
                     val_str = str(cell.value) if cell.value is not None else ""
                     val_len = sum(2 if ord(c)>127 else 1 for c in val_str)
                     if val_len > max_len: max_len = val_len
                 worksheet.column_dimensions[col_letter].width = max_len + 4
-            for row_idx in range(2, len(df) + 3):
-                worksheet.row_dimensions[row_idx].height = 22
+            for row_idx in range(2, len(df) + 3): worksheet.row_dimensions[row_idx].height = 22
         return buffer.getvalue(), f"{filename_prefix}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     except Exception as e:
         return df.to_csv(index=False).encode('utf-8-sig'), f"{filename_prefix}.csv", "text/csv"
@@ -346,58 +279,27 @@ def generate_ai_doc(title, content):
         from docx.oxml.ns import qn
         from docx.enum.text import WD_LINE_SPACING, WD_PARAGRAPH_ALIGNMENT
         doc = docx.Document()
-        style = doc.styles['Normal']
-        style.font.name = '仿宋'
-        style._element.rPr.rFonts.set(qn('w:eastAsia'), '仿宋')
-        style.font.size = Pt(10.5)
-        
-        h = doc.add_heading(level=1)
-        h.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-        run = h.add_run(title)
-        run.font.name = '黑体'
-        run._element.rPr.rFonts.set(qn('w:eastAsia'), '黑体')
-        run.font.size = Pt(14)
-        run.font.color.rgb = docx.shared.RGBColor(0, 0, 0)
-
+        style = doc.styles['Normal']; style.font.name = '仿宋'; style._element.rPr.rFonts.set(qn('w:eastAsia'), '仿宋'); style.font.size = Pt(10.5)
+        h = doc.add_heading(level=1); h.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER; run = h.add_run(title)
+        run.font.name = '黑体'; run._element.rPr.rFonts.set(qn('w:eastAsia'), '黑体'); run.font.size = Pt(14); run.font.color.rgb = docx.shared.RGBColor(0, 0, 0)
         def add_runs_to_paragraph(p, text):
-            parts = re.split(r'(\*\*.*?\*\*)', text)
-            for part in parts:
-                if part.startswith('**') and part.endswith('**'):
-                    clean_text = part[2:-2].replace('*', '') 
-                    r = p.add_run(clean_text)
-                    r.bold = True
-                else:
-                    clean_text = part.replace('*', '')
-                    r = p.add_run(clean_text)
-                r.font.name = '仿宋'
-                r._element.rPr.rFonts.set(qn('w:eastAsia'), '仿宋')
-                r.font.size = Pt(10.5)
-
-        lines = content.split('\n')
-        for line in lines:
+            for part in re.split(r'(\*\*.*?\*\*)', text):
+                r = p.add_run(part[2:-2].replace('*', '') if part.startswith('**') and part.endswith('**') else part.replace('*', ''))
+                if part.startswith('**'): r.bold = True
+                r.font.name = '仿宋'; r._element.rPr.rFonts.set(qn('w:eastAsia'), '仿宋'); r.font.size = Pt(10.5)
+        for line in content.split('\n'):
             line = line.strip()
             if not line: continue
-            if line.startswith('- '): line = line[2:].strip()
-            if line.startswith('* '): line = line[2:].strip()
+            if line.startswith('- ') or line.startswith('* '): line = line[2:].strip()
             line = line.replace('•', '').replace('·', '').strip()
+            p = doc.add_paragraph(); p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE 
             if line.startswith('#'):
                 level = 0
                 while level < len(line) and line[level] == '#': level += 1
-                text = line[level:].strip().replace('*', '')
-                p = doc.add_paragraph()
-                p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE 
-                r = p.add_run(text)
-                r.bold = True
-                r.font.size = Pt(12) 
-                r.font.name = '黑体'
-                r._element.rPr.rFonts.set(qn('w:eastAsia'), '黑体')
+                r = p.add_run(line[level:].strip().replace('*', '')); r.bold = True; r.font.size = Pt(12); r.font.name = '黑体'; r._element.rPr.rFonts.set(qn('w:eastAsia'), '黑体')
             else:
-                p = doc.add_paragraph()
-                p.paragraph_format.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE 
                 add_runs_to_paragraph(p, line)
-
-        buffer = io.BytesIO()
-        doc.save(buffer)
+        buffer = io.BytesIO(); doc.save(buffer)
         return buffer.getvalue(), f"{title}.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     except:
         return f"【{title}】\n\n{content}".encode('utf-8-sig'), f"{title}.txt", "text/plain"
@@ -405,29 +307,36 @@ def generate_ai_doc(title, content):
 @st.cache_data(ttl=2592000, show_spinner=False)
 def get_ai_grouped_advice_for_teacher(grade, subject, grouped_data_str):
     if not client: return "⚠️ AI 尚未配置。"
-    prompt = f"""你是资深的{grade}{subject}教研专家。
-以下是我所带班级在本次考试中，各个薄弱知识点及对应的具体学生名单（仅列出了得分率不足 60% 的学生）：
-{grouped_data_str}
-请你基于以上真实数据，为我生成一份「精准靶向辅导与分层教学报告」。
-要求：
-1. 深度剖析：直接针对上述出现的薄弱点进行深度归类分析，指出学生在模型或思路上可能的错因。
-2. 靶向措施：给出具体、可操作的课堂补救和教学措施。
-3. 必须在建议中自然地提及对应的学生名字，让这份报告具有极强的落地实操性。
-"""
-    try:
-        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是精准教研专家AI。"}, {"role": "user", "content": prompt}])
-        return res.choices[0].message.content
+    prompt = f"你是资深的{grade}{subject}教研专家。以下是我所带班级薄弱知识点及对应的具体学生名单（得分率不足60%）：\n{grouped_data_str}\n请生成一份「精准靶向辅导与分层教学报告」，深度剖析并给出具体措施，必须自然提及学生名字。"
+    try: res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是精准教研专家AI。"}, {"role": "user", "content": prompt}]); return res.choices[0].message.content
+    except: return "AI 生成失败"
+
+@st.cache_data(ttl=2592000, show_spinner=False)
+def get_ai_compare_advice(sheet_a, sheet_b, metric, class_avg_str, top_improvers_str, bottom_regressors_str):
+    if not client: return "⚠️ AI 尚未配置。"
+    prompt = f"""你是资深教务数据分析专家。请基于以下原始数据，生成一份【{sheet_b}】对比【{sheet_a}】的【{metric}】学情进退步诊断报告。
+
+1. 各班平均进步幅度：
+{class_avg_str}
+
+2. 全校进步最快榜：
+{top_improvers_str}
+
+3. 需重点关注的退步生预警：
+{bottom_regressors_str}
+
+请深度分析各班表现差异可能的原因，并在表扬进步学生的同时，给出极具落地性的教务管理调整建议和培优补差措施。结构要清晰，语言专业且富有激励性。"""
+    try: res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是资深教务数据分析AI。"}, {"role": "user", "content": prompt}]); return res.choices[0].message.content
     except: return "AI 生成失败"
 
 # ==============================================================================
-# 🌟 智能表头扁平化解析器 (处理判卷系统复杂Excel)
+# 🌟 智能表头解析与定位
 # ==============================================================================
 def smart_parse_excel(uploaded_file, sheet_name):
     df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=[0, 1])
     new_cols = []
     for c in df.columns:
-        c0 = str(c[0]).strip()
-        c1 = str(c[1]).strip()
+        c0, c1 = str(c[0]).strip(), str(c[1]).strip()
         if 'Unnamed' in c0: c0 = ''
         if 'Unnamed' in c1: c1 = ''
         if c0 and c1 and c0 != c1: new_cols.append(f"{c0}_{c1}")
@@ -456,7 +365,7 @@ def logout():
     st.rerun()
 
 # ==============================================================================
-# 🌐 左侧 SaaS 导航边栏 (动态权限挂载)
+# 🌐 左侧 SaaS 导航边栏
 # ==============================================================================
 menu_sel = "首页" 
 adm_direction = "物理方向" 
@@ -464,7 +373,6 @@ adm_direction = "物理方向"
 if st.session_state.teacher_role:
     with st.sidebar:
         st.markdown(f"<h2 style='margin-top:-20px; padding-bottom: 10px;'>🏫 英华教务系统</h2>", unsafe_allow_html=True)
-        
         st.markdown(f"""
         <div style='background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%); padding: 18px; border-radius: 12px; margin-bottom: 20px; border: 1px solid rgba(255,255,255,0.05); box-shadow: 0 4px 12px rgba(0,0,0,0.2);'>
             <div style='color: #F8FAFC; font-size: 18px; font-weight: 800; letter-spacing: 1px;'>👨‍🏫 {st.session_state.teacher_name}</div>
@@ -474,10 +382,8 @@ if st.session_state.teacher_role:
         
         selected_grade = st.selectbox("隐藏标签1", ["高三", "高二", "高一"], index=["高三", "高二", "高一"].index(st.session_state.current_grade), label_visibility="collapsed")
         adm_direction = st.selectbox("隐藏标签2", ["物理方向", "历史方向", "综合方向"], label_visibility="collapsed")
-        
         st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
         
-        # 🔴 动态生成菜单：仅全局角色(教务处等)可以看见多考对比
         base_options = ["首页", "成绩明细表", "历次追踪分析", "AI 教研中心"]
         base_icons = ["grid-fill", "table", "graph-up-arrow", "robot"]
         
@@ -487,11 +393,7 @@ if st.session_state.teacher_role:
         
         with st.expander("📊 考试分析", expanded=True):
             menu_sel = option_menu(
-                menu_title=None,
-                options=base_options,
-                icons=base_icons,
-                menu_icon="cast",
-                default_index=0,
+                menu_title=None, options=base_options, icons=base_icons, menu_icon="cast", default_index=0,
                 styles={
                     "container": {"padding": "5px 0!important", "background-color": "#162032", "border-radius": "0px", "border": "none"},
                     "icon": {"color": "#64748B", "font-size": "15px"},
@@ -500,7 +402,6 @@ if st.session_state.teacher_role:
                     "nav-link:hover": {"background-color": "rgba(255,255,255,0.03)"}
                 }
             )
-        
         st.divider()
         st.button("🚪 退出", on_click=logout, use_container_width=True, type="secondary")
         
@@ -509,7 +410,7 @@ if st.session_state.teacher_role:
             st.rerun()
 
 # ==============================================================================
-# 🚪 登录界面 (未登录状态)
+# 🚪 登录界面
 # ==============================================================================
 if not st.session_state.teacher_role:
     st.markdown("<br><br><br>", unsafe_allow_html=True)
@@ -519,20 +420,16 @@ if not st.session_state.teacher_role:
             st.markdown(f"<h2 style='text-align: center; color: #0F172A; margin-bottom: 30px; font-weight: 800;'>🏫 英华数据指挥舱</h2>", unsafe_allow_html=True)
             t_name = st.text_input("👤 教职工姓名 (需与学校花名册一致)")
             pwd = st.text_input("🔐 访问密码", type="password")
-            
             selected_grade = st.session_state.current_grade 
-            
             if st.form_submit_button("安全验证并进入", use_container_width=True):
                 try: roster_df = pd.read_csv(URL_TEACHER_ROSTER, on_bad_lines='skip')
                 except: roster_df = None
-                
                 if roster_df is not None and '教师姓名' in roster_df.columns:
                     t_info = roster_df[roster_df['教师姓名'].astype(str).str.strip() == t_name.strip()]
                     if not t_info.empty:
                         info = t_info.iloc[0]
                         actual_role = str(info.get('角色', '')).strip()
                         is_auth = False
-                        
                         if actual_role in GLOBAL_ROLES and pwd == ADMIN_PASSWORD: is_auth = True
                         elif actual_role in HOMEROOM_ROLES and (pwd == HOMEROOM_PASSWORD or pwd == ADMIN_PASSWORD): is_auth = True
                         elif actual_role in SUBJECT_HEAD_ROLES and (pwd == TEACHER_PASSWORD or pwd == ADMIN_PASSWORD): is_auth = True
@@ -566,12 +463,12 @@ else:
     """, unsafe_allow_html=True)
     
     # =========================================================================
-    # 👑 专属特权模块：本地多考对比分析 (完全脱离固定配置，直接读取 Excel)
+    # 👑 专属特权模块：本地多考对比分析 (动态表头、双维名次、高亮、AI生成)
     # =========================================================================
     if menu_sel == "本地多考对比":
-        st.info("💡 请上传由大型联考判卷系统导出的多 Sheet 成绩表（如同时包含段考和一模成绩的 Excel），系统将自动解析表头并进行进退步追踪计算。")
+        st.info("💡 请上传由大型联考判卷系统导出的多 Sheet 成绩表，系统将自动解析双层表头、计算进退步，并生成 AI 全校报告。")
         
-        uploaded_file = st.file_uploader("📥 点击或拖拽上传判卷系统 Excel 成绩表 (.xlsx / .xls)", type=["xlsx", "xls"])
+        uploaded_file = st.file_uploader("📥 上传判卷系统 Excel 成绩表 (.xlsx / .xls)", type=["xlsx", "xls"])
         
         if uploaded_file:
             excel_data = pd.ExcelFile(uploaded_file)
@@ -579,19 +476,16 @@ else:
             
             with st.container(border=True):
                 st.markdown("<p style='font-size: 15px; font-weight: bold; color: #0F172A;'>⚙️ 跨考比对引擎设置</p>", unsafe_allow_html=True)
-                # 🔴 新增：加入了“对比指标”的全科选择框！
                 col1, col2, col3 = st.columns(3)
                 sheet_a = col1.selectbox("基础考试 (如：段考)", sheet_names)
                 sheet_b = col2.selectbox("对比考试 (如：一模)", sheet_names, index=min(1, len(sheet_names)-1))
                 compare_metric = col3.selectbox("🎯 对比指标 (总分或单科)", ["总分", "语文", "数学", "英语", "物理", "化学", "生物", "历史", "政治", "地理"])
                 
-                if st.button("🚀 启动智能分析追踪", type="primary", use_container_width=True):
-                    with st.spinner(f"系统正在深度解析 Excel，比对【{compare_metric}】的波动轨迹..."):
-                        # 1. 扁平化解析两个 sheet
+                if st.button("🚀 启动双维透视追踪与 AI 报告生成", type="primary", use_container_width=True):
+                    with st.spinner(f"系统正在进行智能重组，深度比对【{compare_metric}】的波动轨迹..."):
                         df_a = smart_parse_excel(uploaded_file, sheet_a)
                         df_b = smart_parse_excel(uploaded_file, sheet_b)
                         
-                        # 2. 动态寻找关键列 (智能匹配多种表头称呼)
                         name_col_a = find_target_column(df_a.columns, ['姓名', '名字'])
                         name_col_b = find_target_column(df_b.columns, ['姓名', '名字'])
                         
@@ -603,83 +497,143 @@ else:
                         score_col_a = find_target_column(df_a.columns, metric_kws)
                         score_col_b = find_target_column(df_b.columns, metric_kws)
                         
+                        # 🔴 抓取“校名次”列
+                        rank_kws = [f'{compare_metric}_校名', f'{compare_metric}_校排', f'{compare_metric}_名次', f'{compare_metric}_排名', '总分赋分_校名', '总分_校名', '校名', '排名', '名次', '校排']
+                        rank_col_a = find_target_column(df_a.columns, rank_kws)
+                        rank_col_b = find_target_column(df_b.columns, rank_kws)
+                        
                         class_col_b = find_target_column(df_b.columns, ['班级', '班名', '行政班'])
                         
                         if not all([name_col_a, name_col_b, score_col_a, score_col_b]):
-                            st.error(f"❌ 无法从表格中自动识别到「姓名」或「{compare_metric}」列，请检查 Excel 格式是否包含该科目标准名称。")
+                            st.error(f"❌ 无法从表格中自动识别到「姓名」或「{compare_metric}」列，请检查 Excel 格式是否标准。")
                         else:
-                            # 3. 提取干净的数据框并合并
-                            clean_a = df_a[[name_col_a, score_col_a]].rename(columns={name_col_a: '姓名', score_col_a: f'基础_{compare_metric}'})
-                            clean_b_cols = [name_col_b, score_col_b]
-                            if class_col_b: clean_b_cols.append(class_col_b)
-                            clean_b = df_b[clean_b_cols].rename(columns={name_col_b: '姓名', score_col_b: f'对比_{compare_metric}', class_col_b: '班级' if class_col_b else '未知班级'})
+                            # 构建动态列名
+                            base_score_col = f"{sheet_a}_{compare_metric}"
+                            comp_score_col = f"{sheet_b}_{compare_metric}"
+                            base_rank_col = f"{sheet_a}_校排名"
+                            comp_rank_col = f"{sheet_b}_校排名"
                             
-                            # 强制转为数字，无法转换的设为0
-                            clean_a[f'基础_{compare_metric}'] = pd.to_numeric(clean_a[f'基础_{compare_metric}'], errors='coerce').fillna(0)
-                            clean_b[f'对比_{compare_metric}'] = pd.to_numeric(clean_b[f'对比_{compare_metric}'], errors='coerce').fillna(0)
+                            cols_a = {name_col_a: '姓名', score_col_a: base_score_col}
+                            if rank_col_a: cols_a[rank_col_a] = base_rank_col
+                            clean_a = df_a[list(cols_a.keys())].rename(columns=cols_a)
+                            
+                            cols_b = {name_col_b: '姓名', score_col_b: comp_score_col}
+                            if rank_col_b: cols_b[rank_col_b] = comp_rank_col
+                            if class_col_b: cols_b[class_col_b] = '班级'
+                            clean_b = df_b[list(cols_b.keys())].rename(columns=cols_b)
+                            
+                            clean_a[base_score_col] = pd.to_numeric(clean_a[base_score_col], errors='coerce').fillna(0)
+                            clean_b[comp_score_col] = pd.to_numeric(clean_b[comp_score_col], errors='coerce').fillna(0)
                             
                             merged_df = pd.merge(clean_b, clean_a, on='姓名', how='inner')
                             
                             if merged_df.empty:
                                 st.warning("⚠️ 两次考试中未能匹配到相同姓名的学生数据。")
                             else:
-                                # 计算进退步
-                                merged_df['进步分数'] = (merged_df[f'对比_{compare_metric}'] - merged_df[f'基础_{compare_metric}']).round(1)
+                                # 计算分数进步
+                                merged_df['分数进步'] = (merged_df[comp_score_col] - merged_df[base_score_col]).round(1)
+                                
+                                # 计算排名进步 (名次数字越小越好，所以用 Base - Comp)
+                                has_rank = False
+                                if base_rank_col in merged_df.columns and comp_rank_col in merged_df.columns:
+                                    has_rank = True
+                                    merged_df[base_rank_col] = pd.to_numeric(merged_df[base_rank_col], errors='coerce')
+                                    merged_df[comp_rank_col] = pd.to_numeric(merged_df[comp_rank_col], errors='coerce')
+                                    merged_df['排名进步'] = merged_df[base_rank_col] - merged_df[comp_rank_col]
+                                    merged_df['排名进步'] = merged_df['排名进步'].fillna(0).astype(int)
+                                
+                                # 准备展示用的 DataFrame
+                                disp_cols = ['班级', '姓名', base_score_col, comp_score_col, '分数进步']
+                                if has_rank: 
+                                    disp_cols.insert(3, base_rank_col)
+                                    disp_cols.insert(5, comp_rank_col)
+                                    disp_cols.append('排名进步')
+                                
+                                disp_df = merged_df[disp_cols].sort_values('分数进步', ascending=False)
                                 
                                 # ==========================================
                                 # 渲染可视化分析
                                 # ==========================================
                                 st.markdown("---")
-                                st.markdown(f"#### 🎯 【{sheet_b}】较【{sheet_a}】【{compare_metric}】进退步全景分析")
+                                st.markdown(f"#### 🎯 【{sheet_b}】较【{sheet_a}】【{compare_metric}】全景分析")
                                 
-                                # 🏅 进步飞跃榜 (🔴 加上了班级前缀)
-                                top_improvers = merged_df.sort_values(by='进步分数', ascending=False).head(5)
-                                t_names = "、".join([f"【{r.get('班级', '未知')}】{r['姓名']}(+{r['进步分数']}分)" for _, r in top_improvers.iterrows()])
-                                st.success(f"🏅 **进步飞跃榜 (Top 5)：** {t_names}")
+                                top_improvers = merged_df.sort_values(by='分数进步', ascending=False).head(5)
+                                t_names = "、".join([f"【{r.get('班级', '未知')}】{r['姓名']}(+{r['分数进步']}分)" for _, r in top_improvers.iterrows()])
+                                st.success(f"🏅 **全校进步飞跃榜 (Top 5)：** {t_names}")
                                 
-                                # 📊 🔴 新增：各班级平均进步幅度横向对比柱状图
-                                st.markdown("<br><p style='font-size:16px; font-weight: bold; color:#0F172A;'>📊 各班级平均进步幅度横向对比</p>", unsafe_allow_html=True)
-                                class_avg_progress = merged_df.groupby('班级')['进步分数'].mean().round(1).reset_index()
+                                bottom_regressors = merged_df.sort_values(by='分数进步', ascending=True).head(5)
+                                b_names = "、".join([f"【{r.get('班级', '未知')}】{r['姓名']}({r['分数进步']}分)" for _, r in bottom_regressors.iterrows()])
+                                st.error(f"🚨 **需重点关注的退步预警 (Bottom 5)：** {b_names}")
                                 
-                                # 根据正负值分配红绿颜色
-                                class_avg_progress['Color'] = class_avg_progress['进步分数'].apply(lambda x: '#EF4444' if x < 0 else '#10B981')
+                                # 📊 班级横向对比图
+                                class_avg_progress = merged_df.groupby('班级')['分数进步'].mean().round(1).reset_index()
+                                class_avg_progress['Color'] = class_avg_progress['分数进步'].apply(lambda x: '#EF4444' if x < 0 else '#10B981')
                                 
-                                fig_class = px.bar(class_avg_progress, x='班级', y='进步分数', text_auto=True)
+                                fig_class = px.bar(class_avg_progress, x='班级', y='分数进步', text_auto=True, title="📊 各班级平均进步幅度横向对比")
                                 fig_class.update_traces(marker_color=class_avg_progress['Color'], textposition='outside')
-                                fig_class.update_layout(dragmode=False, plot_bgcolor='rgba(248, 250, 252, 0.5)', paper_bgcolor='white', margin=dict(t=20, b=20, l=20, r=20))
+                                fig_class.update_layout(dragmode=False, plot_bgcolor='rgba(248, 250, 252, 0.5)', paper_bgcolor='white', margin=dict(t=40, b=20, l=20, r=20))
                                 st.plotly_chart(fig_class, use_container_width=True, config=CHART_CONFIG)
                                 
                                 # 📝 明细表与四象限图
                                 st.markdown("<br>", unsafe_allow_html=True)
-                                c_table, c_chart = st.columns([1, 1.2])
-                                disp_df = merged_df[['班级', '姓名', f'基础_{compare_metric}', f'对比_{compare_metric}', '进步分数']].sort_values('进步分数', ascending=False)
+                                c_table, c_chart = st.columns([1, 1])
                                 
                                 with c_table:
-                                    st.markdown("<p style='font-size:14px; color:#64748B;'>📝 学生比对数据明细 (可点击列名排序)</p>", unsafe_allow_html=True)
-                                    st.dataframe(disp_df, hide_index=True, height=450, use_container_width=True)
+                                    st.markdown("<p style='font-size:14px; color:#64748B;'>📝 学生比对明细 (黄色背景为进步生)</p>", unsafe_allow_html=True)
                                     
-                                    # 📥 🔴 新增：一键导出对比结果到 Excel
-                                    excel_title = f"【{sheet_b}】较【{sheet_a}】{compare_metric}进退步对比表"
+                                    # 🟡 护眼鹅黄色高亮进步学生
+                                    def highlight_progress_yellow(row):
+                                        return ['background-color: #FEF08A'] * len(row) if row.get('分数进步', 0) > 0 else [''] * len(row)
+                                        
+                                    styled_df = disp_df.style.apply(highlight_progress_yellow, axis=1)
+                                    st.dataframe(styled_df, hide_index=True, height=450, use_container_width=True)
+                                    
+                                    excel_title = f"【{sheet_b}】较【{sheet_a}】{compare_metric}进退步全景追踪表"
                                     file_data, file_name, mime_type = generate_excel_download(disp_df, f"进退步对比_{compare_metric}", excel_title)
-                                    st.download_button(label="📥 一键下载对比结果 (Excel)", data=file_data, file_name=file_name, mime=mime_type, type="primary", use_container_width=True)
+                                    st.download_button(label="📥 一键下载精美对比明细 (Excel)", data=file_data, file_name=file_name, mime=mime_type, type="primary", use_container_width=True)
                                 
                                 with c_chart:
-                                    st.markdown(f"<p style='font-size:14px; color:#64748B;'>📈 {compare_metric}四象限分布图 (红虚线为原地踏步线，上方为进步)</p>", unsafe_allow_html=True)
+                                    st.markdown(f"<p style='font-size:14px; color:#64748B;'>📈 {compare_metric}四象限分布图 (红虚线为原地踏步线)</p>", unsafe_allow_html=True)
+                                    hover_d = ["班级", "分数进步"]
+                                    if has_rank: hover_d.append("排名进步")
                                     fig = px.scatter(
-                                        merged_df, x=f"基础_{compare_metric}", y=f"对比_{compare_metric}", 
-                                        hover_name="姓名", hover_data=["班级", "进步分数"],
-                                        color="进步分数", color_continuous_scale=px.colors.diverging.RdYlGn,
+                                        merged_df, x=base_score_col, y=comp_score_col, 
+                                        hover_name="姓名", hover_data=hover_d,
+                                        color="分数进步", color_continuous_scale=px.colors.diverging.RdYlGn,
                                     )
-                                    min_val = min(merged_df[f'基础_{compare_metric}'].min(), merged_df[f'对比_{compare_metric}'].min()) - 10
-                                    max_val = max(merged_df[f'基础_{compare_metric}'].max(), merged_df[f'对比_{compare_metric}'].max()) + 10
+                                    min_val = min(merged_df[base_score_col].min(), merged_df[comp_score_col].min()) - 10
+                                    max_val = max(merged_df[base_score_col].max(), merged_df[comp_score_col].max()) + 10
                                     
                                     fig.add_shape(type="line", x0=min_val, y0=min_val, x1=max_val, y1=max_val, line=dict(color="#EF4444", dash="dash"))
                                     fig.update_layout(
                                         dragmode=False, plot_bgcolor='rgba(248, 250, 252, 0.5)', paper_bgcolor='white',
-                                        margin=dict(t=20, b=20, l=20, r=20),
+                                        margin=dict(t=20, b=20, l=20, r=20), height=450,
                                         xaxis_title=f"X: {sheet_a} {compare_metric}", yaxis_title=f"Y: {sheet_b} {compare_metric}",
                                     )
                                     st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
+
+                                # ==========================================
+                                # 🤖 AI 智能诊断生成
+                                # ==========================================
+                                st.divider()
+                                st.markdown("#### 🧠 全校学情进退步 AI 分析决策")
+                                
+                                ai_compare_key = f"ai_comp_{sheet_a}_{sheet_b}_{compare_metric}"
+                                
+                                if st.button("✨ 一键生成全校质量分析报告 (基于底层数据的深层洞察)"):
+                                    with st.spinner("AI 正在汇聚全校班级数据，深度构建教学建议报告..."):
+                                        class_avg_str = "\n".join([f"- 【{r['班级']}】平均波动: {r['分数进步']}分" for _, r in class_avg_progress.iterrows()])
+                                        
+                                        ai_reply = get_ai_compare_advice(sheet_a, sheet_b, compare_metric, class_avg_str, t_names, b_names)
+                                        st.session_state[ai_compare_key] = ai_reply
+
+                                if ai_compare_key in st.session_state:
+                                    saved_reply = st.session_state[ai_compare_key]
+                                    st.markdown(f"<div class='ai-box'><b>🤖 教务专家分析：</b><br><br>{saved_reply}</div><br>", unsafe_allow_html=True)
+                                    
+                                    doc_title = f"【{sheet_b}】较【{sheet_a}】{compare_metric}_全校质量分析报告"
+                                    file_data, file_name, mime_type = generate_ai_doc(doc_title, saved_reply)
+                                    st.download_button(label="📥 下载 Word 格式质量分析报告", data=file_data, file_name=file_name, mime=mime_type, type="primary")
 
     # =========================================================================
     # 常规模块：如果不是“多考对比”，则走常规的云端数据流
