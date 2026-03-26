@@ -238,7 +238,7 @@ def build_master_df(grade_key):
     return master, latest_exam, exams
 
 # ==============================================================================
-# 🎨 导出与排版模块 (压缩表格行高)
+# 🎨 导出引擎：升级版多 Sheet 生成器 (一键切分班级)
 # ==============================================================================
 def render_html_table(df):
     html = """
@@ -257,46 +257,67 @@ def render_html_table(df):
     html += "</table></div>"
     st.markdown(html, unsafe_allow_html=True)
 
-def generate_excel_download(df, filename_prefix, title_text):
+# 🔴 核心升级：增加 split_by_class 参数，自动为每个班生成独立 Sheet
+def generate_excel_download(df, filename_prefix, title_text, split_by_class=False):
     try:
         from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
         from openpyxl.utils import get_column_letter
         buffer = io.BytesIO()
         with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name='成绩明细', startrow=1)
-            worksheet = writer.sheets['成绩明细']
-            num_cols = len(df.columns)
-            worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=num_cols)
-            title_cell = worksheet.cell(row=1, column=1, value=title_text)
-            title_cell.font = Font(size=18, bold=True, color="FFFFFFFF") 
-            title_cell.fill = PatternFill(start_color="FF3B82F6", end_color="FF3B82F6", fill_type="solid") 
-            title_cell.alignment = Alignment(horizontal="center", vertical="center")
-            worksheet.row_dimensions[1].height = 40 
-            header_fill = PatternFill(start_color="FF64748B", end_color="FF64748B", fill_type="solid")
-            header_font = Font(bold=True, color="FFFFFFFF", size=11)
-            even_fill = PatternFill(start_color="FFF8FAFC", end_color="FFF8FAFC", fill_type="solid")
-            odd_fill = PatternFill(start_color="FFFFFFFF", end_color="FFFFFFFF", fill_type="solid")
-            thin_border = Border(left=Side(style='thin', color='FFDDDDDD'), right=Side(style='thin', color='FFDDDDDD'), 
-                                 top=Side(style='thin', color='FFDDDDDD'), bottom=Side(style='thin', color='FFDDDDDD'))
-            for col_idx in range(1, num_cols + 1):
-                col_letter = get_column_letter(col_idx)
-                max_len = sum(2 if ord(c)>127 else 1 for c in str(df.columns[col_idx-1]))
-                for row_idx in range(2, len(df) + 3):
-                    cell = worksheet.cell(row=row_idx, column=col_idx)
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
-                    cell.border = thin_border
-                    if row_idx == 2:
-                        cell.fill = header_fill
-                        cell.font = header_font
-                    else:
-                        cell.fill = even_fill if row_idx % 2 == 0 else odd_fill
-                        cell.font = Font(size=11)
-                    val_str = str(cell.value) if cell.value is not None else ""
-                    val_len = sum(2 if ord(c)>127 else 1 for c in val_str)
-                    if val_len > max_len: max_len = val_len
-                worksheet.column_dimensions[col_letter].width = max_len + 4
-            for row_idx in range(2, len(df) + 3):
-                worksheet.row_dimensions[row_idx].height = 22
+            
+            # 内部辅助函数：生成单个排版精美的 Sheet
+            def write_sheet(dataframe, sheet_name, sheet_title):
+                dataframe.to_excel(writer, index=False, sheet_name=sheet_name, startrow=1)
+                worksheet = writer.sheets[sheet_name]
+                num_cols = len(dataframe.columns)
+                if num_cols == 0: return
+                
+                worksheet.merge_cells(start_row=1, start_column=1, end_row=1, end_column=num_cols)
+                title_cell = worksheet.cell(row=1, column=1, value=sheet_title)
+                title_cell.font = Font(size=18, bold=True, color="FFFFFFFF") 
+                title_cell.fill = PatternFill(start_color="FF3B82F6", end_color="FF3B82F6", fill_type="solid") 
+                title_cell.alignment = Alignment(horizontal="center", vertical="center")
+                worksheet.row_dimensions[1].height = 40 
+                
+                header_fill = PatternFill(start_color="FF64748B", end_color="FF64748B", fill_type="solid")
+                header_font = Font(bold=True, color="FFFFFFFF", size=11)
+                even_fill = PatternFill(start_color="FFF8FAFC", end_color="FFF8FAFC", fill_type="solid")
+                odd_fill = PatternFill(start_color="FFFFFFFF", end_color="FFFFFFFF", fill_type="solid")
+                thin_border = Border(left=Side(style='thin', color='FFDDDDDD'), right=Side(style='thin', color='FFDDDDDD'), 
+                                     top=Side(style='thin', color='FFDDDDDD'), bottom=Side(style='thin', color='FFDDDDDD'))
+                
+                for col_idx in range(1, num_cols + 1):
+                    col_letter = get_column_letter(col_idx)
+                    max_len = sum(2 if ord(c)>127 else 1 for c in str(dataframe.columns[col_idx-1]))
+                    for row_idx in range(2, len(dataframe) + 3):
+                        cell = worksheet.cell(row=row_idx, column=col_idx)
+                        cell.alignment = Alignment(horizontal="center", vertical="center")
+                        cell.border = thin_border
+                        if row_idx == 2:
+                            cell.fill = header_fill
+                            cell.font = header_font
+                        else:
+                            cell.fill = even_fill if row_idx % 2 == 0 else odd_fill
+                            cell.font = Font(size=11)
+                        val_str = str(cell.value) if cell.value is not None else ""
+                        val_len = sum(2 if ord(c)>127 else 1 for c in val_str)
+                        if val_len > max_len: max_len = val_len
+                    worksheet.column_dimensions[col_letter].width = max_len + 4
+                for row_idx in range(2, len(dataframe) + 3):
+                    worksheet.row_dimensions[row_idx].height = 22
+
+            # 1. 永远先写入一个“全年级汇总表”
+            write_sheet(df, '全年级汇总表', title_text)
+            
+            # 2. 如果开启分班切分，则按班级拆解成多个 Sheet
+            if split_by_class and '班级' in df.columns:
+                classes = sorted(df['班级'].dropna().unique().tolist())
+                for cls in classes:
+                    cls_df = df[df['班级'] == cls]
+                    # 避免班级名带有非法字符或过长
+                    safe_sheet_name = str(cls)[:30].replace('[','').replace(']','').replace('*','')
+                    write_sheet(cls_df, safe_sheet_name, f"{title_text} - {cls}")
+
         return buffer.getvalue(), f"{filename_prefix}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     except Exception as e:
         return df.to_csv(index=False).encode('utf-8-sig'), f"{filename_prefix}.csv", "text/csv"
@@ -364,6 +385,9 @@ def generate_ai_doc(title, content):
     except:
         return f"【{title}】\n\n{content}".encode('utf-8-sig'), f"{title}.txt", "text/plain"
 
+# ==============================================================================
+# 🤖 动态 AI 引擎分析逻辑：按总分/单科区分人设
+# ==============================================================================
 @st.cache_data(ttl=2592000, show_spinner=False)
 def get_ai_grouped_advice_for_teacher(grade, subject, grouped_data_str):
     if not client: return "⚠️ AI 尚未配置。"
@@ -384,25 +408,35 @@ def get_ai_grouped_advice_for_teacher(grade, subject, grouped_data_str):
 @st.cache_data(ttl=2592000, show_spinner=False)
 def get_ai_compare_advice(sheet_a, sheet_b, metric, class_avg_str, top_improvers_str, bottom_regressors_str):
     if not client: return "⚠️ AI 尚未配置。"
-    prompt = f"""你是资深教务数据分析专家。请基于以下原始数据，生成一份【{sheet_b}】对比【{sheet_a}】的【{metric}】学情进退步诊断报告。
+    
+    # 🔴 核心修复：根据“总分”还是“单科”注入不同的系统指令！
+    if metric == "总分":
+        focus_instruction = "【分析方向指令】：本次对比的是「总分」。请从各科均衡发展、时间分配、考试心态、整体复习策略等宏观教务管理角度，为年级主任和班主任提供策略。"
+    else:
+        focus_instruction = f"【分析方向指令】：本次对比的是单科「{metric}」。请深入该学科的知识体系（如{metric}的题型、核心素养、常见易错点），从微观教研、课堂教学改进、单科培优补差等专业学科角度，为{metric}备课组和任课教师提供落地方案。"
 
-1. 各班平均进步幅度：
+    prompt = f"""你是资深的高中教务数据分析专家。请基于以下真实考试数据，生成一份【{sheet_b}】对比【{sheet_a}】的【{metric}】学情进退步诊断报告。
+
+{focus_instruction}
+
+1. 各班【{metric}】平均进步幅度：
 {class_avg_str}
 
-2. 全校进步最快榜：
+2. 【{metric}】全校进步飞跃榜（表扬与经验总结）：
 {top_improvers_str}
 
-3. 需重点关注的退步生预警：
+3. 【{metric}】需重点关注的退步生预警（归因与辅导建议）：
 {bottom_regressors_str}
 
-请深度分析各班表现差异可能的原因，并在表扬进步学生的同时，给出极具落地性的教务管理调整建议和培优补差措施。结构要清晰，语言专业且富有激励性。"""
+请使用专业、干练的语言，结构化输出报告，给出极具落地性的教研调整建议。"""
+    
     try:
         res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是资深教务数据分析AI。"}, {"role": "user", "content": prompt}])
         return res.choices[0].message.content
     except: return "AI 生成失败"
 
 # ==============================================================================
-# 🌟 智能表头解析与定位 (修复优先级Bug，避免单科误抓总分)
+# 🌟 智能表头解析与定位 (修复单科误抓总分 Bug)
 # ==============================================================================
 def smart_parse_excel(uploaded_file, sheet_name):
     df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=[0, 1])
@@ -420,7 +454,6 @@ def smart_parse_excel(uploaded_file, sheet_name):
     return df
 
 def find_target_column(df_columns, keywords):
-    # 🔴 关键修复：必须优先遍历 keywords 列表！这样排在前面的精确关键字才会优先被命中
     for kw in keywords:
         for col in df_columns:
             if kw in col: return col
@@ -574,13 +607,11 @@ else:
                         name_col_a = find_target_column(df_a.columns, ['姓名', '名字'])
                         name_col_b = find_target_column(df_b.columns, ['姓名', '名字'])
                         
-                        # 🔴 修复：精确分离“总分”与“单科”的关键字隔离区！
                         if compare_metric == "总分":
                             metric_kws = ['总分赋分_分数', '总分_分数', '总分', '成绩', '赋分']
                             rank_kws = ['总分赋分_校名', '总分赋分_排名', '总分_校排', '总分_名次', '总分_校名', '总分_排名', '校名', '排名', '名次', '校排']
                         else:
                             metric_kws = [f'{compare_metric}_分数', f'{compare_metric}_赋分', compare_metric]
-                            # 单科绝对禁止使用泛化关键字，防止误抓总分排名！
                             rank_kws = [f'{compare_metric}_校名', f'{compare_metric}_排名', f'{compare_metric}_校排', f'{compare_metric}_名次']
                             
                         score_col_a = find_target_column(df_a.columns, metric_kws)
@@ -594,7 +625,6 @@ else:
                         if not all([name_col_a, name_col_b, score_col_a, score_col_b]):
                             st.error(f"❌ 无法从表格中自动识别到「姓名」或「{compare_metric}」列，请检查 Excel 格式是否标准。")
                         else:
-                            # 构建动态列名
                             base_score_col = f"{sheet_a}_{compare_metric}"
                             comp_score_col = f"{sheet_b}_{compare_metric}"
                             base_rank_col = f"{sheet_a}_校排名"
@@ -617,10 +647,8 @@ else:
                             if merged_df.empty:
                                 st.warning("⚠️ 两次考试中未能匹配到相同姓名的学生数据。")
                             else:
-                                # 计算分数进步
                                 merged_df['分数进步'] = (merged_df[comp_score_col] - merged_df[base_score_col]).round(1)
                                 
-                                # 计算排名进步 (名次数字越小越好，所以用 Base - Comp)
                                 has_rank = False
                                 if base_rank_col in merged_df.columns and comp_rank_col in merged_df.columns:
                                     has_rank = True
@@ -629,7 +657,6 @@ else:
                                     merged_df['排名进步'] = merged_df[base_rank_col] - merged_df[comp_rank_col]
                                     merged_df['排名进步'] = merged_df['排名进步'].fillna(0).astype(int)
                                 
-                                # 准备展示用的 DataFrame
                                 disp_cols = ['班级', '姓名', base_score_col, comp_score_col, '分数进步']
                                 if has_rank: 
                                     disp_cols.insert(3, base_rank_col)
@@ -652,7 +679,6 @@ else:
                                 b_names = "、".join([f"【{r.get('班级', '未知')}】{r['姓名']}({r['分数进步']}分)" for _, r in bottom_regressors.iterrows()])
                                 st.error(f"🚨 **需重点关注的退步预警 (Bottom 5)：** {b_names}")
                                 
-                                # 📊 班级横向对比图
                                 class_avg_progress = merged_df.groupby('班级')['分数进步'].mean().round(1).reset_index()
                                 class_avg_progress['Color'] = class_avg_progress['分数进步'].apply(lambda x: '#EF4444' if x < 0 else '#10B981')
                                 
@@ -661,14 +687,12 @@ else:
                                 fig_class.update_layout(dragmode=False, plot_bgcolor='rgba(248, 250, 252, 0.5)', paper_bgcolor='white', margin=dict(t=40, b=20, l=20, r=20))
                                 st.plotly_chart(fig_class, use_container_width=True, config=CHART_CONFIG)
                                 
-                                # 📝 明细表与四象限图
                                 st.markdown("<br>", unsafe_allow_html=True)
                                 c_table, c_chart = st.columns([1, 1])
                                 
                                 with c_table:
                                     st.markdown("<p style='font-size:14px; color:#64748B;'>📝 学生比对明细 (黄色背景为进步生)</p>", unsafe_allow_html=True)
                                     
-                                    # 🟡 护眼鹅黄色高亮进步学生
                                     def highlight_progress_yellow(row):
                                         return ['background-color: #FEF08A'] * len(row) if row.get('分数进步', 0) > 0 else [''] * len(row)
                                         
@@ -676,8 +700,9 @@ else:
                                     st.dataframe(styled_df, hide_index=True, height=450, use_container_width=True)
                                     
                                     excel_title = f"【{sheet_b}】较【{sheet_a}】{compare_metric}进退步全景追踪表"
-                                    file_data, file_name, mime_type = generate_excel_download(disp_df, f"进退步对比_{compare_metric}", excel_title)
-                                    st.download_button(label="📥 一键下载精美对比明细 (Excel)", data=file_data, file_name=file_name, mime=mime_type, type="primary", use_container_width=True)
+                                    # 🔴 调用升级后的导出函数，激活 split_by_class=True！
+                                    file_data, file_name, mime_type = generate_excel_download(disp_df, f"进退步对比_{compare_metric}", excel_title, split_by_class=True)
+                                    st.download_button(label="📥 一键下载精美明细 (内含各班独立Sheet)", data=file_data, file_name=file_name, mime=mime_type, type="primary", use_container_width=True)
                                 
                                 with c_chart:
                                     st.markdown(f"<p style='font-size:14px; color:#64748B;'>📈 {compare_metric}四象限分布图 (红虚线为原地踏步线)</p>", unsafe_allow_html=True)
@@ -723,7 +748,7 @@ else:
                                     st.download_button(label="📥 下载 Word 格式质量分析报告", data=file_data, file_name=file_name, mime=mime_type, type="primary")
 
     # =========================================================================
-    # 常规模块：如果不是“多考对比”，则走常规的云端数据流
+    # 常规模块
     # =========================================================================
     elif menu_sel != "本地多考对比":
         master_df, LATEST_EXAM, EXAMS_LIST = build_master_df(st.session_state.current_grade)
@@ -821,8 +846,8 @@ else:
                             table_to_show = df_filtered[['姓名', '考号', '班级', f'{subject}年级排名', f'{subject}班级排名', subject]].sort_values(by=subject, ascending=False)
                             render_html_table(table_to_show)
                             
-                            file_data, file_name, mime_type = generate_excel_download(table_to_show, f"【{st.session_state.current_grade}】_{subject}明细", f"【{LATEST_EXAM['name']}】{subject}成绩单")
-                            st.download_button(label="📥 下载精美 Excel 成绩单", data=file_data, file_name=file_name, mime=mime_type, type="primary")
+                            file_data, file_name, mime_type = generate_excel_download(table_to_show, f"【{st.session_state.current_grade}】_{subject}明细", f"【{LATEST_EXAM['name']}】{subject}成绩单", split_by_class=True)
+                            st.download_button(label="📥 下载精美 Excel 成绩单 (内含各班分表)", data=file_data, file_name=file_name, mime=mime_type, type="primary")
                         else:
                             st.warning(f"当前考试中未找到您的学科【{subject}】。")
                     else:
@@ -833,8 +858,8 @@ else:
                         table_to_show = df_filtered[front_cols + other_cols].sort_values(by=['班级', '总分'], ascending=[True, False])
                         render_html_table(table_to_show)
                         
-                        file_data, file_name, mime_type = generate_excel_download(table_to_show, f"【{st.session_state.current_grade}】_{adm_direction}全科明细", f"【{LATEST_EXAM['name']}】{adm_direction}成绩汇总单")
-                        st.download_button(label="📥 下载全科 Excel 汇总单", data=file_data, file_name=file_name, mime=mime_type, type="primary")
+                        file_data, file_name, mime_type = generate_excel_download(table_to_show, f"【{st.session_state.current_grade}】_{adm_direction}全科明细", f"【{LATEST_EXAM['name']}】{adm_direction}成绩汇总单", split_by_class=True)
+                        st.download_button(label="📥 下载全科 Excel 汇总单 (内含各班分表)", data=file_data, file_name=file_name, mime=mime_type, type="primary")
 
                 # =====================================================================
                 # 常规模块三：历次追踪分析
