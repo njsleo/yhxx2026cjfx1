@@ -423,35 +423,24 @@ def get_ai_grouped_advice_for_teacher(grade, subject, grouped_data_str):
 # 🌟 智能表头扁平化解析器 (处理判卷系统复杂Excel)
 # ==============================================================================
 def smart_parse_excel(uploaded_file, sheet_name):
-    # 尝试读取两层表头（例如：总分赋分 -> 分数）
     df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=[0, 1])
-    
     new_cols = []
     for c in df.columns:
         c0 = str(c[0]).strip()
         c1 = str(c[1]).strip()
-        
-        # 去除 pandas 自动补充的 Unnamed 占位符
         if 'Unnamed' in c0: c0 = ''
         if 'Unnamed' in c1: c1 = ''
-        
-        if c0 and c1 and c0 != c1:
-            new_cols.append(f"{c0}_{c1}")
-        elif c0:
-            new_cols.append(c0)
-        elif c1:
-            new_cols.append(c1)
-        else:
-            new_cols.append("未知列")
-            
+        if c0 and c1 and c0 != c1: new_cols.append(f"{c0}_{c1}")
+        elif c0: new_cols.append(c0)
+        elif c1: new_cols.append(c1)
+        else: new_cols.append("未知列")
     df.columns = new_cols
     return df
 
 def find_target_column(df_columns, keywords):
     for col in df_columns:
         for kw in keywords:
-            if kw in col:
-                return col
+            if kw in col: return col
     return None
 
 # ==============================================================================
@@ -469,8 +458,8 @@ def logout():
 # ==============================================================================
 # 🌐 左侧 SaaS 导航边栏 (动态权限挂载)
 # ==============================================================================
-menu_sel = "首页" # 防止报错默认值
-adm_direction = "物理方向" # 防止报错默认值
+menu_sel = "首页" 
+adm_direction = "物理方向" 
 
 if st.session_state.teacher_role:
     with st.sidebar:
@@ -589,38 +578,45 @@ else:
             sheet_names = excel_data.sheet_names
             
             with st.container(border=True):
-                st.markdown("<p style='font-size: 15px; font-weight: bold; color: #0F172A;'>⚙️ 选择需要对比的两次考试：</p>", unsafe_allow_html=True)
-                col1, col2 = st.columns(2)
+                st.markdown("<p style='font-size: 15px; font-weight: bold; color: #0F172A;'>⚙️ 跨考比对引擎设置</p>", unsafe_allow_html=True)
+                # 🔴 新增：加入了“对比指标”的全科选择框！
+                col1, col2, col3 = st.columns(3)
                 sheet_a = col1.selectbox("基础考试 (如：段考)", sheet_names)
                 sheet_b = col2.selectbox("对比考试 (如：一模)", sheet_names, index=min(1, len(sheet_names)-1))
+                compare_metric = col3.selectbox("🎯 对比指标 (总分或单科)", ["总分", "语文", "数学", "英语", "物理", "化学", "生物", "历史", "政治", "地理"])
                 
-                if st.button("🚀 开始执行智能进退步比对", type="primary", use_container_width=True):
-                    with st.spinner("系统正在解析复杂表头，匹配学生信息..."):
+                if st.button("🚀 启动智能分析追踪", type="primary", use_container_width=True):
+                    with st.spinner(f"系统正在深度解析 Excel，比对【{compare_metric}】的波动轨迹..."):
                         # 1. 扁平化解析两个 sheet
                         df_a = smart_parse_excel(uploaded_file, sheet_a)
                         df_b = smart_parse_excel(uploaded_file, sheet_b)
                         
-                        # 2. 动态寻找关键列
+                        # 2. 动态寻找关键列 (智能匹配多种表头称呼)
                         name_col_a = find_target_column(df_a.columns, ['姓名', '名字'])
                         name_col_b = find_target_column(df_b.columns, ['姓名', '名字'])
                         
-                        score_col_a = find_target_column(df_a.columns, ['总分赋分_分数', '总分_分数', '总分', '成绩', '赋分'])
-                        score_col_b = find_target_column(df_b.columns, ['总分赋分_分数', '总分_分数', '总分', '成绩', '赋分'])
+                        if compare_metric == "总分":
+                            metric_kws = ['总分赋分_分数', '总分_分数', '总分', '成绩', '赋分']
+                        else:
+                            metric_kws = [f'{compare_metric}_分数', f'{compare_metric}_赋分', compare_metric]
+                            
+                        score_col_a = find_target_column(df_a.columns, metric_kws)
+                        score_col_b = find_target_column(df_b.columns, metric_kws)
                         
-                        class_col = find_target_column(df_b.columns, ['班级', '班名', '行政班'])
+                        class_col_b = find_target_column(df_b.columns, ['班级', '班名', '行政班'])
                         
                         if not all([name_col_a, name_col_b, score_col_a, score_col_b]):
-                            st.error(f"❌ 无法从表格中自动识别到「姓名」或「总分」列，请检查 Excel 格式是否标准。识别结果：A表姓名({name_col_a}) A表总分({score_col_a}) B表姓名({name_col_b}) B表总分({score_col_b})")
+                            st.error(f"❌ 无法从表格中自动识别到「姓名」或「{compare_metric}」列，请检查 Excel 格式是否包含该科目标准名称。")
                         else:
                             # 3. 提取干净的数据框并合并
-                            clean_a = df_a[[name_col_a, score_col_a]].rename(columns={name_col_a: '姓名', score_col_a: '基础总分'})
+                            clean_a = df_a[[name_col_a, score_col_a]].rename(columns={name_col_a: '姓名', score_col_a: f'基础_{compare_metric}'})
                             clean_b_cols = [name_col_b, score_col_b]
-                            if class_col: clean_b_cols.append(class_col)
-                            clean_b = df_b[clean_b_cols].rename(columns={name_col_b: '姓名', score_col_b: '对比总分', class_col: '班级' if class_col else '未知班级'})
+                            if class_col_b: clean_b_cols.append(class_col_b)
+                            clean_b = df_b[clean_b_cols].rename(columns={name_col_b: '姓名', score_col_b: f'对比_{compare_metric}', class_col_b: '班级' if class_col_b else '未知班级'})
                             
                             # 强制转为数字，无法转换的设为0
-                            clean_a['基础总分'] = pd.to_numeric(clean_a['基础总分'], errors='coerce').fillna(0)
-                            clean_b['对比总分'] = pd.to_numeric(clean_b['对比总分'], errors='coerce').fillna(0)
+                            clean_a[f'基础_{compare_metric}'] = pd.to_numeric(clean_a[f'基础_{compare_metric}'], errors='coerce').fillna(0)
+                            clean_b[f'对比_{compare_metric}'] = pd.to_numeric(clean_b[f'对比_{compare_metric}'], errors='coerce').fillna(0)
                             
                             merged_df = pd.merge(clean_b, clean_a, on='姓名', how='inner')
                             
@@ -628,40 +624,60 @@ else:
                                 st.warning("⚠️ 两次考试中未能匹配到相同姓名的学生数据。")
                             else:
                                 # 计算进退步
-                                merged_df['进步分数'] = (merged_df['对比总分'] - merged_df['基础总分']).round(1)
+                                merged_df['进步分数'] = (merged_df[f'对比_{compare_metric}'] - merged_df[f'基础_{compare_metric}']).round(1)
                                 
-                                # 4. 渲染可视化分析
+                                # ==========================================
+                                # 渲染可视化分析
+                                # ==========================================
                                 st.markdown("---")
-                                st.markdown(f"#### 🎯 【{sheet_b}】较【{sheet_a}】进退步全景分析")
+                                st.markdown(f"#### 🎯 【{sheet_b}】较【{sheet_a}】【{compare_metric}】进退步全景分析")
                                 
+                                # 🏅 进步飞跃榜 (🔴 加上了班级前缀)
                                 top_improvers = merged_df.sort_values(by='进步分数', ascending=False).head(5)
-                                t_names = "、".join([f"{r['姓名']}(+{r['进步分数']}分)" for _, r in top_improvers.iterrows()])
+                                t_names = "、".join([f"【{r.get('班级', '未知')}】{r['姓名']}(+{r['进步分数']}分)" for _, r in top_improvers.iterrows()])
                                 st.success(f"🏅 **进步飞跃榜 (Top 5)：** {t_names}")
                                 
+                                # 📊 🔴 新增：各班级平均进步幅度横向对比柱状图
+                                st.markdown("<br><p style='font-size:16px; font-weight: bold; color:#0F172A;'>📊 各班级平均进步幅度横向对比</p>", unsafe_allow_html=True)
+                                class_avg_progress = merged_df.groupby('班级')['进步分数'].mean().round(1).reset_index()
+                                
+                                # 根据正负值分配红绿颜色
+                                class_avg_progress['Color'] = class_avg_progress['进步分数'].apply(lambda x: '#EF4444' if x < 0 else '#10B981')
+                                
+                                fig_class = px.bar(class_avg_progress, x='班级', y='进步分数', text_auto=True)
+                                fig_class.update_traces(marker_color=class_avg_progress['Color'], textposition='outside')
+                                fig_class.update_layout(dragmode=False, plot_bgcolor='rgba(248, 250, 252, 0.5)', paper_bgcolor='white', margin=dict(t=20, b=20, l=20, r=20))
+                                st.plotly_chart(fig_class, use_container_width=True, config=CHART_CONFIG)
+                                
+                                # 📝 明细表与四象限图
+                                st.markdown("<br>", unsafe_allow_html=True)
                                 c_table, c_chart = st.columns([1, 1.2])
+                                disp_df = merged_df[['班级', '姓名', f'基础_{compare_metric}', f'对比_{compare_metric}', '进步分数']].sort_values('进步分数', ascending=False)
+                                
                                 with c_table:
                                     st.markdown("<p style='font-size:14px; color:#64748B;'>📝 学生比对数据明细 (可点击列名排序)</p>", unsafe_allow_html=True)
-                                    disp_df = merged_df.sort_values('进步分数', ascending=False)
                                     st.dataframe(disp_df, hide_index=True, height=450, use_container_width=True)
+                                    
+                                    # 📥 🔴 新增：一键导出对比结果到 Excel
+                                    excel_title = f"【{sheet_b}】较【{sheet_a}】{compare_metric}进退步对比表"
+                                    file_data, file_name, mime_type = generate_excel_download(disp_df, f"进退步对比_{compare_metric}", excel_title)
+                                    st.download_button(label="📥 一键下载对比结果 (Excel)", data=file_data, file_name=file_name, mime=mime_type, type="primary", use_container_width=True)
                                 
                                 with c_chart:
-                                    st.markdown("<p style='font-size:14px; color:#64748B;'>📈 总分四象限分布图 (红虚线为原地踏步线，上方为进步，下方为退步)</p>", unsafe_allow_html=True)
-                                    
+                                    st.markdown(f"<p style='font-size:14px; color:#64748B;'>📈 {compare_metric}四象限分布图 (红虚线为原地踏步线，上方为进步)</p>", unsafe_allow_html=True)
                                     fig = px.scatter(
-                                        merged_df, x="基础总分", y="对比总分", 
+                                        merged_df, x=f"基础_{compare_metric}", y=f"对比_{compare_metric}", 
                                         hover_name="姓名", hover_data=["班级", "进步分数"],
                                         color="进步分数", color_continuous_scale=px.colors.diverging.RdYlGn,
                                     )
-                                    
-                                    min_val = min(merged_df['基础总分'].min(), merged_df['对比总分'].min()) - 10
-                                    max_val = max(merged_df['基础总分'].max(), merged_df['对比总分'].max()) + 10
+                                    min_val = min(merged_df[f'基础_{compare_metric}'].min(), merged_df[f'对比_{compare_metric}'].min()) - 10
+                                    max_val = max(merged_df[f'基础_{compare_metric}'].max(), merged_df[f'对比_{compare_metric}'].max()) + 10
                                     
                                     fig.add_shape(type="line", x0=min_val, y0=min_val, x1=max_val, y1=max_val, line=dict(color="#EF4444", dash="dash"))
-                                    
                                     fig.update_layout(
                                         dragmode=False, plot_bgcolor='rgba(248, 250, 252, 0.5)', paper_bgcolor='white',
                                         margin=dict(t=20, b=20, l=20, r=20),
-                                        xaxis_title=f"X: {sheet_a} 总分", yaxis_title=f"Y: {sheet_b} 总分",
+                                        xaxis_title=f"X: {sheet_a} {compare_metric}", yaxis_title=f"Y: {sheet_b} {compare_metric}",
                                     )
                                     st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
 
