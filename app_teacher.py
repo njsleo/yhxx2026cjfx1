@@ -184,7 +184,7 @@ def build_master_df(grade_key):
     return master, latest_exam, exams
 
 # ==============================================================================
-# 🎨 导出与排版引擎 (分班 Sheet 已恢复)
+# 🎨 导出与排版引擎
 # ==============================================================================
 def render_html_table(df):
     html = """
@@ -443,10 +443,10 @@ else:
     """, unsafe_allow_html=True)
     
     # =========================================================================
-    # 👑 本地多考对比分析 (融入双考达标率测算)
+    # 👑 本地多考对比分析 (动态表名与双轨达标率)
     # =========================================================================
     if menu_sel == "本地多考对比":
-        st.info("💡 请上传由大型联考判卷系统导出的多 Sheet 成绩表，下拉选框后数据将**极速自动生成**！")
+        st.info("💡 请上传由大型联考判卷系统导出的多 Sheet 成绩表，系统将自动解析、计算进退步，并生成 AI 报告。")
         uploaded_file = st.file_uploader("📥 上传判卷系统 Excel 成绩表 (.xlsx / .xls)", type=["xlsx", "xls"])
         
         if uploaded_file:
@@ -457,8 +457,8 @@ else:
             with st.container(border=True):
                 st.markdown("<p style='font-size: 15px; font-weight: bold; color: #0F172A;'>⚙️ 跨考比对引擎设置</p>", unsafe_allow_html=True)
                 col1, col2, col3 = st.columns(3)
-                sheet_a = col1.selectbox("基础考试 (如：段考)", sheet_names)
-                sheet_b = col2.selectbox("对比考试 (如：一模)", sheet_names, index=min(1, len(sheet_names)-1))
+                sheet_a = col1.selectbox("基础考试 (A)", sheet_names)
+                sheet_b = col2.selectbox("对比考试 (B)", sheet_names, index=min(1, len(sheet_names)-1))
                 compare_metric = col3.selectbox("🎯 对比指标 (总分或单科)", ["总分", "语文", "数学", "英语", "物理", "化学", "生物", "历史", "政治", "地理"])
                 
                 df_a = smart_parse_excel(file_bytes, sheet_a)
@@ -483,6 +483,7 @@ else:
                 if not all([name_col_a, name_col_b, score_col_a, score_col_b]):
                     st.error(f"❌ 无法从表格中自动识别到「姓名」或「{compare_metric}」列，请检查 Excel 格式是否标准。")
                 else:
+                    # 🔴 动态生成带有真实考试名称的列名！
                     base_score_col = f"{sheet_a}_{compare_metric}"
                     comp_score_col = f"{sheet_b}_{compare_metric}"
                     base_rank_col = f"{sheet_a}_校排名"
@@ -561,22 +562,30 @@ else:
                             st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
 
                         # ==========================================
-                        # 🎯 新增：双考上线率进退步达标监控
+                        # 🎯 🔴 核心新增：双考上线率进退步达标监控
                         # ==========================================
                         st.divider()
                         st.markdown(f"#### 🎯 【{compare_metric}】双考上线率进退步监控")
                         with st.container(border=True):
-                            c_l1, c_l2, c_l3 = st.columns([1, 1, 2])
-                            line_te = c_l1.number_input(f"🏆 设定【{compare_metric}】特控线", min_value=0.0, value=0.0, step=1.0, key="comp_te")
-                            line_ben = c_l2.number_input(f"🎓 设定【{compare_metric}】本科线", min_value=0.0, value=0.0, step=1.0, key="comp_ben")
+                            c_l1, c_l2 = st.columns(2)
+                            with c_l1:
+                                st.markdown(f"<p style='font-size:14px; font-weight:bold; color:#334155; margin-bottom:-5px;'>📌 设定【{sheet_a}】分数线</p>", unsafe_allow_html=True)
+                                c_a_te, c_a_ben = st.columns(2)
+                                line_te_a = c_a_te.number_input(f"🏆 {sheet_a} 特控线", min_value=0.0, value=0.0, step=1.0, key="te_a")
+                                line_ben_a = c_a_ben.number_input(f"🎓 {sheet_a} 本科线", min_value=0.0, value=0.0, step=1.0, key="ben_a")
+                            with c_l2:
+                                st.markdown(f"<p style='font-size:14px; font-weight:bold; color:#334155; margin-bottom:-5px;'>📌 设定【{sheet_b}】分数线</p>", unsafe_allow_html=True)
+                                c_b_te, c_b_ben = st.columns(2)
+                                line_te_b = c_b_te.number_input(f"🏆 {sheet_b} 特控线", min_value=0.0, value=0.0, step=1.0, key="te_b")
+                                line_ben_b = c_b_ben.number_input(f"🎓 {sheet_b} 本科线", min_value=0.0, value=0.0, step=1.0, key="ben_b")
 
-                            if line_te > 0 or line_ben > 0:
+                            if (line_te_a > 0 or line_ben_a > 0) or (line_te_b > 0 or line_ben_b > 0):
                                 total_stu_comp = len(merged_df)
                                 
-                                base_te_all = len(merged_df[merged_df[base_score_col] >= line_te]) if line_te > 0 else 0
-                                comp_te_all = len(merged_df[merged_df[comp_score_col] >= line_te]) if line_te > 0 else 0
-                                base_ben_all = len(merged_df[merged_df[base_score_col] >= line_ben]) if line_ben > 0 else 0
-                                comp_ben_all = len(merged_df[merged_df[comp_score_col] >= line_ben]) if line_ben > 0 else 0
+                                base_te_all = len(merged_df[merged_df[base_score_col] >= line_te_a]) if line_te_a > 0 else 0
+                                comp_te_all = len(merged_df[merged_df[comp_score_col] >= line_te_b]) if line_te_b > 0 else 0
+                                base_ben_all = len(merged_df[merged_df[base_score_col] >= line_ben_a]) if line_ben_a > 0 else 0
+                                comp_ben_all = len(merged_df[merged_df[comp_score_col] >= line_ben_b]) if line_ben_b > 0 else 0
 
                                 rate_comp_te = round(comp_te_all / total_stu_comp * 100, 1) if total_stu_comp > 0 else 0
                                 rate_comp_ben = round(comp_ben_all / total_stu_comp * 100, 1) if total_stu_comp > 0 else 0
@@ -585,11 +594,11 @@ else:
                                 diff_ben_count = comp_ben_all - base_ben_all
 
                                 st.markdown(f"""
-                                <div style='background-color: #F8FAFC; padding: 15px; border-radius: 8px; border-left: 4px solid #10B981; margin-top: 5px; margin-bottom: 20px;'>
+                                <div style='background-color: #F8FAFC; padding: 15px; border-radius: 8px; border-left: 4px solid #10B981; margin-top: 15px; margin-bottom: 20px;'>
                                     <span style='font-size: 15px; color: #334155;'><b>🌐 双考群体达标波动概况：</b></span><br>
                                     <span style='font-size: 14px; color: #64748B;'>
-                                    🏆 特控上线：当前 <b>{comp_te_all}</b> 人 (较上次 {'+' if diff_te_count>=0 else ''}{diff_te_count} 人)，当前上线率 <b style='color:#10B981;'>{rate_comp_te}%</b> &nbsp;&nbsp;|&nbsp;&nbsp; 
-                                    🎓 本科上线：当前 <b>{comp_ben_all}</b> 人 (较上次 {'+' if diff_ben_count>=0 else ''}{diff_ben_count} 人)，当前上线率 <b style='color:#3B82F6;'>{rate_comp_ben}%</b>
+                                    🏆 <b>{sheet_b}特控上线：</b> {comp_te_all} 人 (较{sheet_a} {'+' if diff_te_count>=0 else ''}{diff_te_count} 人)，当前特控率 <b style='color:#10B981;'>{rate_comp_te}%</b> &nbsp;&nbsp;|&nbsp;&nbsp; 
+                                    🎓 <b>{sheet_b}本科上线：</b> {comp_ben_all} 人 (较{sheet_a} {'+' if diff_ben_count>=0 else ''}{diff_ben_count} 人)，当前本科率 <b style='color:#3B82F6;'>{rate_comp_ben}%</b>
                                     </span>
                                 </div>
                                 """, unsafe_allow_html=True)
@@ -600,46 +609,46 @@ else:
                                     c_total = len(cdf)
                                     row_dict = {'班级': cls, '参考人数': c_total}
                                     
-                                    if line_te > 0:
-                                        c_base_te = len(cdf[cdf[base_score_col] >= line_te])
-                                        c_comp_te = len(cdf[cdf[comp_score_col] >= line_te])
-                                        row_dict[f'基础特控数'] = c_base_te
-                                        row_dict[f'对比特控数'] = c_comp_te
+                                    if line_te_a > 0 or line_te_b > 0:
+                                        c_base_te = len(cdf[cdf[base_score_col] >= line_te_a]) if line_te_a > 0 else 0
+                                        c_comp_te = len(cdf[cdf[comp_score_col] >= line_te_b]) if line_te_b > 0 else 0
+                                        row_dict[f'{sheet_a}特控数'] = c_base_te
+                                        row_dict[f'{sheet_b}特控数'] = c_comp_te
                                         row_dict['特控上线变化'] = c_comp_te - c_base_te
-                                        row_dict['当前特控率(%)'] = round(c_comp_te / c_total * 100, 1) if c_total > 0 else 0
+                                        row_dict[f'{sheet_b}特控率(%)'] = round(c_comp_te / c_total * 100, 1) if c_total > 0 else 0
                                         
-                                    if line_ben > 0:
-                                        c_base_ben = len(cdf[cdf[base_score_col] >= line_ben])
-                                        c_comp_ben = len(cdf[cdf[comp_score_col] >= line_ben])
-                                        row_dict[f'基础本科数'] = c_base_ben
-                                        row_dict[f'对比本科数'] = c_comp_ben
+                                    if line_ben_a > 0 or line_ben_b > 0:
+                                        c_base_ben = len(cdf[cdf[base_score_col] >= line_ben_a]) if line_ben_a > 0 else 0
+                                        c_comp_ben = len(cdf[cdf[comp_score_col] >= line_ben_b]) if line_ben_b > 0 else 0
+                                        row_dict[f'{sheet_a}本科数'] = c_base_ben
+                                        row_dict[f'{sheet_b}本科数'] = c_comp_ben
                                         row_dict['本科上线变化'] = c_comp_ben - c_base_ben
-                                        row_dict['当前本科率(%)'] = round(c_comp_ben / c_total * 100, 1) if c_total > 0 else 0
+                                        row_dict[f'{sheet_b}本科率(%)'] = round(c_comp_ben / c_total * 100, 1) if c_total > 0 else 0
                                         
                                     class_stats.append(row_dict)
 
                                 df_stats = pd.DataFrame(class_stats)
-                                if line_te > 0: df_stats = df_stats.sort_values('当前特控率(%)', ascending=False)
-                                else: df_stats = df_stats.sort_values('当前本科率(%)', ascending=False)
+                                if line_te_b > 0: df_stats = df_stats.sort_values(f'{sheet_b}特控率(%)', ascending=False)
+                                elif line_ben_b > 0: df_stats = df_stats.sort_values(f'{sheet_b}本科率(%)', ascending=False)
 
                                 html_stats = "<div style='width: 100%; overflow-x: auto; border-radius: 8px; border: 1px solid #E8E8E8;'><table style='width: 100%; border-collapse: collapse; font-size: 14px; text-align: center;'>"
                                 html_stats += "<tr><th style='background-color: #FAFAFA; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #333;'>班级</th><th style='background-color: #FAFAFA; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #333;'>参考人数</th>"
-                                if line_te > 0: html_stats += f"<th style='background-color: #FFFBEB; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #92400E;'>基础特控数</th><th style='background-color: #FFFBEB; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #92400E;'>对比特控数</th><th style='background-color: #FFFBEB; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #92400E;'>特控变化</th><th style='background-color: #FFFBEB; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #92400E;'>当前特控率</th>"
-                                if line_ben > 0: html_stats += f"<th style='background-color: #F0F9FF; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #0369A1;'>基础本科数</th><th style='background-color: #F0F9FF; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #0369A1;'>对比本科数</th><th style='background-color: #F0F9FF; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #0369A1;'>本科变化</th><th style='background-color: #F0F9FF; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #0369A1;'>当前本科率</th>"
+                                if line_te_a > 0 or line_te_b > 0: html_stats += f"<th style='background-color: #FFFBEB; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #92400E;'>{sheet_a}特控数</th><th style='background-color: #FFFBEB; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #92400E;'>{sheet_b}特控数</th><th style='background-color: #FFFBEB; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #92400E;'>特控变化</th><th style='background-color: #FFFBEB; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #92400E;'>{sheet_b}特控率</th>"
+                                if line_ben_a > 0 or line_ben_b > 0: html_stats += f"<th style='background-color: #F0F9FF; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #0369A1;'>{sheet_a}本科数</th><th style='background-color: #F0F9FF; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #0369A1;'>{sheet_b}本科数</th><th style='background-color: #F0F9FF; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #0369A1;'>本科变化</th><th style='background-color: #F0F9FF; padding: 10px; border-bottom: 2px solid #E8E8E8; color: #0369A1;'>{sheet_b}本科率</th>"
                                 html_stats += "</tr>"
 
                                 for _, r in df_stats.iterrows():
                                     html_stats += f"<tr><td style='padding: 8px; border-bottom: 1px solid #F0F0F0;'><b>{r['班级']}</b></td><td style='padding: 8px; border-bottom: 1px solid #F0F0F0;'>{r['参考人数']}</td>"
-                                    if line_te > 0: 
+                                    if line_te_a > 0 or line_te_b > 0: 
                                         te_diff = r['特控上线变化']
                                         te_color = "red" if te_diff < 0 else "green"
                                         te_sign = "+" if te_diff > 0 else ""
-                                        html_stats += f"<td style='padding: 8px; border-bottom: 1px solid #F0F0F0;'>{r['基础特控数']}</td><td style='padding: 8px; border-bottom: 1px solid #F0F0F0; font-weight:bold;'>{r['对比特控数']}</td><td style='padding: 8px; border-bottom: 1px solid #F0F0F0; color:{te_color};'>{te_sign}{te_diff}</td><td style='padding: 8px; border-bottom: 1px solid #F0F0F0; color:#B45309;'>{r['当前特控率(%)']}%</td>"
-                                    if line_ben > 0: 
+                                        html_stats += f"<td style='padding: 8px; border-bottom: 1px solid #F0F0F0;'>{r[f'{sheet_a}特控数']}</td><td style='padding: 8px; border-bottom: 1px solid #F0F0F0; font-weight:bold;'>{r[f'{sheet_b}特控数']}</td><td style='padding: 8px; border-bottom: 1px solid #F0F0F0; color:{te_color};'>{te_sign}{te_diff}</td><td style='padding: 8px; border-bottom: 1px solid #F0F0F0; color:#B45309;'>{r[f'{sheet_b}特控率(%)']}%</td>"
+                                    if line_ben_a > 0 or line_ben_b > 0: 
                                         ben_diff = r['本科上线变化']
                                         ben_color = "red" if ben_diff < 0 else "green"
                                         ben_sign = "+" if ben_diff > 0 else ""
-                                        html_stats += f"<td style='padding: 8px; border-bottom: 1px solid #F0F0F0;'>{r['基础本科数']}</td><td style='padding: 8px; border-bottom: 1px solid #F0F0F0; font-weight:bold;'>{r['对比本科数']}</td><td style='padding: 8px; border-bottom: 1px solid #F0F0F0; color:{ben_color};'>{ben_sign}{ben_diff}</td><td style='padding: 8px; border-bottom: 1px solid #F0F0F0; color:#0284C7;'>{r['当前本科率(%)']}%</td>"
+                                        html_stats += f"<td style='padding: 8px; border-bottom: 1px solid #F0F0F0;'>{r[f'{sheet_a}本科数']}</td><td style='padding: 8px; border-bottom: 1px solid #F0F0F0; font-weight:bold;'>{r[f'{sheet_b}本科数']}</td><td style='padding: 8px; border-bottom: 1px solid #F0F0F0; color:{ben_color};'>{ben_sign}{ben_diff}</td><td style='padding: 8px; border-bottom: 1px solid #F0F0F0; color:#0284C7;'>{r[f'{sheet_b}本科率(%)']}%</td>"
                                     html_stats += "</tr>"
                                 html_stats += "</table></div>"
 
@@ -650,7 +659,7 @@ else:
                                 st.download_button(label="📥 下载各班双考上线率对比报表 (Excel)", data=file_data, file_name=file_name, mime=mime_type, type="secondary")
                                 
                             else:
-                                st.info(f"👆 请在上方输入框内设定【{compare_metric}】的「特控线」或「本科线」，系统将立即为您计算两次考试的达标率变化！")
+                                st.info(f"👆 请在上方输入框内设定两次考试的「特控线」或「本科线」，系统将立即为您计算班级达标率及边缘生转化情况！")
 
                         # ==========================================
                         # AI
@@ -709,9 +718,7 @@ else:
             else:
                 is_single_subject_view = role in TEACHER_ROLES + SUBJECT_HEAD_ROLES
                 
-                # =====================================================================
                 # 常规一：首页
-                # =====================================================================
                 if menu_sel == "首页":
                     total_stu = len(df_filtered)
                     class_count = df_filtered['班级'].nunique()
@@ -745,9 +752,7 @@ else:
                         fig_bar.update_layout(dragmode=False, showlegend=False, yaxis_range=[0, y_max], plot_bgcolor='rgba(248, 250, 252, 0.5)', paper_bgcolor='white', margin=dict(t=60, b=30, l=30, r=30), xaxis_title=None, yaxis_title=None, yaxis=dict(showgrid=True, gridcolor='#F1F5F9', gridwidth=1))
                         with st.container(border=True): st.plotly_chart(fig_bar, use_container_width=True, config=CHART_CONFIG)
 
-                    # =====================================================================
-                    # 🎯 常规单考上线率监控
-                    # =====================================================================
+                    # 常规单考上线率
                     st.markdown("<p style='font-size: 16px; font-weight: bold; color: #0F172A; margin-top: 30px;'>🎯 【目标考核】单次考试上线率达标监控</p>", unsafe_allow_html=True)
                     with st.container(border=True):
                         c_l1, c_l2, c_l3 = st.columns([1, 1, 2])
@@ -757,7 +762,6 @@ else:
                         if line_te > 0 or line_ben > 0:
                             pass_te_all = len(df_filtered[df_filtered[metric_col] >= line_te]) if line_te > 0 else 0
                             pass_ben_all = len(df_filtered[df_filtered[metric_col] >= line_ben]) if line_ben > 0 else 0
-
                             rate_te_all = round(pass_te_all / total_stu * 100, 1) if total_stu > 0 else 0
                             rate_ben_all = round(pass_ben_all / total_stu * 100, 1) if total_stu > 0 else 0
 
@@ -776,17 +780,14 @@ else:
                                 cdf = df_filtered[df_filtered['班级'] == cls]
                                 c_total = len(cdf)
                                 row_dict = {'班级': cls, '参考人数': c_total}
-                                
                                 if line_te > 0:
                                     c_te = len(cdf[cdf[metric_col] >= line_te])
                                     row_dict['特控上线数'] = c_te
                                     row_dict['特控上线率(%)'] = round(c_te / c_total * 100, 1) if c_total > 0 else 0
-                                    
                                 if line_ben > 0:
                                     c_ben = len(cdf[cdf[metric_col] >= line_ben])
                                     row_dict['本科上线数'] = c_ben
                                     row_dict['本科上线率(%)'] = round(c_ben / c_total * 100, 1) if c_total > 0 else 0
-                                    
                                 class_stats.append(row_dict)
 
                             df_stats = pd.DataFrame(class_stats)
@@ -810,13 +811,10 @@ else:
                             
                             file_data, file_name, mime_type = generate_excel_download(df_stats, f"上线率统计_{metric_col}", f"【{LATEST_EXAM['name']}】{metric_col}上线率报表")
                             st.download_button(label="📥 下载各班上线率统计报表 (Excel)", data=file_data, file_name=file_name, mime=mime_type, type="secondary")
-                            
                         else:
                             st.info(f"👆 请在上方输入框内设定【{metric_col}】的「特控线」或「本科线」，系统将立即为您进行群体及各班的达标率动态测算。")
 
-                # =====================================================================
                 # 常规二：成绩明细表
-                # =====================================================================
                 elif menu_sel == "成绩明细表":
                     if is_single_subject_view:
                         st.info(f"💡 当前为学科专属视图，仅展示【{subject}】的单科成绩及排名。")
@@ -838,9 +836,7 @@ else:
                         file_data, file_name, mime_type = generate_excel_download(table_to_show, f"【{st.session_state.current_grade}】_{adm_direction}全科明细", f"【{LATEST_EXAM['name']}】{adm_direction}成绩汇总单", split_by_class=True)
                         st.download_button(label="📥 下载全科 Excel 汇总单 (内含各班分表)", data=file_data, file_name=file_name, mime=mime_type, type="primary")
 
-                # =====================================================================
                 # 常规三：历次追踪分析
-                # =====================================================================
                 elif menu_sel == "历次追踪分析":
                     st.info("🔍 在下方下拉框中搜索学生姓名，系统将跨越“时间胶囊”自动聚合该生的所有历史轨迹！")
                     student_options = df_filtered.apply(lambda x: f"{x['班级']} | {x['姓名']} | 考号:{x['考号']}", axis=1).tolist()
@@ -911,9 +907,7 @@ else:
                                                 fig3.update_layout(dragmode=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', yaxis=dict(showgrid=True, gridcolor='#F1F5F9'))
                                                 st.plotly_chart(fig3, use_container_width=True, config=CHART_CONFIG)
 
-                # =====================================================================
                 # 常规四：AI 教研中心
-                # =====================================================================
                 elif menu_sel == "AI 教研中心":
                     st.info("🧠 欢迎进入 AI 教研舱。系统将自动抓取底层题库，计算全班单题得分率，并进行智能聚类！")
                     analyze_subject = subject
