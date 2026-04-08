@@ -102,7 +102,7 @@ if AI_API_KEY: client = openai.OpenAI(api_key=AI_API_KEY, base_url="https://api.
 else: client = None
 
 # ==============================================================================
-# 🛠️ 核心引擎与数据缓存
+# 🛠️ 核心引擎与数据缓存 (🛡️ 彻底修复无考号闪退)
 # ==============================================================================
 def clean_url(url): return str(url).strip() if pd.notna(url) and str(url).strip().lower() != 'nan' else ""
 def clean_str(val): return str(val).strip()[:-2] if pd.notna(val) and str(val).strip().endswith('.0') else str(val).strip() if pd.notna(val) else ""
@@ -114,7 +114,7 @@ def load_exam_config(url):
     except: return pd.DataFrame()
 
 def normalize_class_name(c):
-    if pd.isna(c): return ""
+    if pd.isna(c) or not str(c).strip(): return "未分班"
     c = str(c).replace(" ", "").strip()
     for k, v in {'1':'一','2':'二','3':'三','4':'四','5':'五','6':'六','7':'七','8':'八','9':'九','0':'零'}.items(): c = c.replace(k, v)
     c = c.replace("高三","").replace("高二","").replace("高一","").replace("年级","").replace("()","").replace("（）","")
@@ -156,17 +156,39 @@ def build_master_df(grade_key):
                     if '姓名' in cstr: name_c = col
                     elif '考号' in cstr or '学号' in cstr: id_c = col
                     elif '班级' in cstr: cls_c = col
-                if name_c and id_c:
+                
+                # 🛡️ 核心修复：只要求有姓名列即可，无需考号
+                if name_c:
                     res = []
                     for _, row in df_sub.iterrows():
-                        tot = sum(float(row[c]) for c in df_sub.columns if c not in [name_c, id_c, cls_c] and '总分' not in str(c) and '排名' not in str(c) and pd.notna(row[c]) and str(row[c]).replace('.','',1).isdigit())
+                        tot = 0
+                        for c in df_sub.columns:
+                            cstr = str(c[0]) if isinstance(c, tuple) else str(c)
+                            if c not in [name_c, id_c, cls_c] and '总分' not in cstr and '排名' not in cstr and '名次' not in cstr:
+                                try:
+                                    v = float(row[c])
+                                    if pd.notna(v): tot += v
+                                except: pass
+                        
                         s_name = clean_name(row[name_c])
-                        s_id = clean_str(row[id_c])
+                        # 🛡️ 没有考号就用姓名顶替，绝对不报错
+                        s_id = clean_str(row[id_c]) if id_c and pd.notna(row[id_c]) else s_name 
                         s_cls = normalize_class_name(row[cls_c]) if cls_c else "未分班"
-                        if s_id: res.append({'姓名': s_name, '考号': s_id, '班级': s_cls, sub: round(tot, 1)})
-                    if res: dfs.append(pd.DataFrame(res))
+                        
+                        if s_name: res.append({'姓名': s_name, '考号': s_id, '班级': s_cls, sub: round(tot, 1)})
+                    
+                    if res: 
+                        temp_df = pd.DataFrame(res)
+                        if '姓名' in temp_df.columns and '考号' in temp_df.columns and '班级' in temp_df.columns:
+                            dfs.append(temp_df)
+                            
     if not dfs: return None, latest_exam, exams
-    master = functools.reduce(lambda l, r: pd.merge(l, r, on=['姓名','考号','班级'], how='outer'), dfs)
+    
+    # 🛡️ 安全合并机制：取代脆弱的 functools.reduce
+    master = dfs[0]
+    for i in range(1, len(dfs)):
+        master = pd.merge(master, dfs[i], on=['姓名','考号','班级'], how='outer')
+        
     present_subs = [s for s in subs if s in master.columns]
     master[present_subs] = master[present_subs].fillna(0)
     master['总分'] = master[present_subs].sum(axis=1).round(1)
@@ -184,7 +206,7 @@ def build_master_df(grade_key):
     return master, latest_exam, exams
 
 # ==============================================================================
-# 🎨 导出与排版引擎
+# 🎨 导出与排版引擎 (分班 Sheet 已恢复)
 # ==============================================================================
 def render_html_table(df):
     html = """
@@ -326,7 +348,7 @@ def smart_parse_excel(file_bytes, sheet_name):
     header_idx = 0
     for idx, row in df_raw.iterrows():
         row_str = "".join([str(x) for x in row.values])
-        # 如果某一行包含这些字眼，说明它一定是表头
+        # 如果某一行包含这些字眼，说明它一定是真正的表头
         if '姓名' in row_str or '总分' in row_str or '成绩' in row_str or '语文' in row_str:
             header_idx = idx
             break
@@ -522,7 +544,6 @@ else:
                     if class_col_b: cols_b[class_col_b] = '班级'
                     clean_b = df_b[list(cols_b.keys())].rename(columns=cols_b)
                     
-                    # 避免重复列带来的干扰
                     clean_a = clean_a.loc[:, ~clean_a.columns.duplicated()]
                     clean_b = clean_b.loc[:, ~clean_b.columns.duplicated()]
                     
@@ -534,7 +555,7 @@ else:
                     else:
                         merged_df = pd.merge(clean_b, clean_a, on='姓名', how='inner')
                         
-                        # 🛡️ 盲区保护：如果用户表格没班级列，强行赋予"未分班"，阻止崩溃
+                        # 🛡️ 盲区保护：如果没班级列，强行赋予"未分班"
                         if '班级' not in merged_df.columns:
                             merged_df['班级'] = '未分班'
                         
@@ -640,7 +661,7 @@ else:
                                     """, unsafe_allow_html=True)
 
                                     class_stats = []
-                                    for cls in sorted(merged_df['班级'].unique()):
+                                    for cls in sorted(merged_df['班级'].dropna().unique()):
                                         cdf = merged_df[merged_df['班级'] == cls]
                                         c_total = len(cdf)
                                         row_dict = {'班级': cls, '参考人数': c_total}
@@ -703,7 +724,7 @@ else:
                         ai_compare_key = f"ai_comp_{sheet_a}_{sheet_b}_{compare_metric}"
                         if st.button("✨ 一键生成全校质量分析报告 (基于底层数据的深层洞察)"):
                             with st.spinner("AI 正在汇聚全校班级数据，深度构建教学建议报告..."):
-                                class_avg_str = "\n".join([f"- 【{r['班级']}】平均波动: {r['分数进步']}分" for _, r in class_avg_progress.iterrows()])
+                                class_avg_str = "\n".join([f"- 【{r['班级']}】平均波动: {r['分数进步']}分" for _, r in class_avg_progress.iterrows()]) if '班级' in merged_df.columns else "未分班"
                                 ai_reply = get_ai_compare_advice(sheet_a, sheet_b, compare_metric, class_avg_str, t_names, b_names)
                                 st.session_state[ai_compare_key] = ai_reply
 
@@ -752,7 +773,9 @@ else:
             else:
                 is_single_subject_view = role in TEACHER_ROLES + SUBJECT_HEAD_ROLES
                 
+                # =====================================================================
                 # 常规一：首页
+                # =====================================================================
                 if menu_sel == "首页":
                     total_stu = len(df_filtered)
                     class_count = df_filtered['班级'].nunique()
@@ -846,7 +869,9 @@ else:
                             st.download_button(label="📥 下载各班上线率统计报表 (Excel)", data=file_data, file_name=file_name, mime=mime_type, type="secondary")
                         else: st.info(f"👆 请在上方输入框内设定【{metric_col}】的「特控线」或「本科线」，系统将立即为您进行群体及各班的达标率动态测算。")
 
+                # =====================================================================
                 # 常规二：成绩明细表
+                # =====================================================================
                 elif menu_sel == "成绩明细表":
                     if is_single_subject_view:
                         st.info(f"💡 当前为学科专属视图，仅展示【{subject}】的单科成绩及排名。")
@@ -868,7 +893,9 @@ else:
                         file_data, file_name, mime_type = generate_excel_download(table_to_show, f"【{st.session_state.current_grade}】_{adm_direction}全科明细", f"【{LATEST_EXAM['name']}】{adm_direction}成绩汇总单", split_by_class=True)
                         st.download_button(label="📥 下载全科 Excel 汇总单 (内含各班分表)", data=file_data, file_name=file_name, mime=mime_type, type="primary")
 
+                # =====================================================================
                 # 常规三：历次追踪分析
+                # =====================================================================
                 elif menu_sel == "历次追踪分析":
                     st.info("🔍 在下方下拉框中搜索学生姓名，系统将跨越“时间胶囊”自动聚合该生的所有历史轨迹！")
                     student_options = df_filtered.apply(lambda x: f"{x['班级']} | {x['姓名']} | 考号:{x['考号']}", axis=1).tolist()
@@ -900,11 +927,21 @@ else:
                                                     for _, row in d_sub.iterrows():
                                                         test_id = clean_str(row[i_c]) if i_c and pd.notna(row[i_c]) else clean_name(row[n_c])
                                                         if test_id == sel_id or test_id == sel_name:
-                                                            tot = sum(float(row[c]) for c in d_sub.columns if c not in [n_c, i_c] and '总分' not in str(c) and '排名' not in str(c) and pd.notna(row[c]) and str(row[c]).replace('.','',1).isdigit())
+                                                            tot = 0
+                                                            for c in d_sub.columns:
+                                                                if c in [n_c, i_c]: continue
+                                                                cstr = str(c[0]) if isinstance(c, tuple) else str(c)
+                                                                if '总分' in cstr or '排名' in cstr or '名次' in cstr: continue
+                                                                try:
+                                                                    v = float(row[c])
+                                                                    if pd.notna(v): tot += v
+                                                                except: pass
                                                             r_ls.append({'考号': sel_id, sh: round(tot, 1)})
                                                     if r_ls: dfs_sub.append(pd.DataFrame(r_ls))
                                     if dfs_sub:
-                                        exam_master = functools.reduce(lambda l, r: pd.merge(l, r, on=['考号'], how='outer'), dfs_sub)
+                                        exam_master = dfs_sub[0]
+                                        for k in range(1, len(dfs_sub)):
+                                            exam_master = pd.merge(exam_master, dfs_sub[k], on=['考号'], how='outer')
                                         p_subs = [s for s in subs_hist if s in exam_master.columns]
                                         exam_master['总分'] = exam_master[p_subs].fillna(0).sum(axis=1).round(1)
                                         row = exam_master.iloc[0]
@@ -941,7 +978,9 @@ else:
                                                 fig3.update_layout(dragmode=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', yaxis=dict(showgrid=True, gridcolor='#F1F5F9'))
                                                 st.plotly_chart(fig3, use_container_width=True, config=CHART_CONFIG)
 
+                # =====================================================================
                 # 常规四：AI 教研中心
+                # =====================================================================
                 elif menu_sel == "AI 教研中心":
                     st.info("🧠 欢迎进入 AI 教研舱。系统将自动抓取底层题库，计算全班单题得分率，并进行智能聚类！")
                     analyze_subject = subject
