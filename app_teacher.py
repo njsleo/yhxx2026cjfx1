@@ -85,7 +85,8 @@ SUBJECT_HEAD_ROLES = ["学科主任"]
 TEACHER_ROLES = ["任课教师", "教师"]
 HOMEROOM_ROLES = ["班主任"]
 
-if 'current_grade' not in st.session_state: st.session_state.current_grade = "高三"
+if 'current_grade' not in st.session_state:
+    st.session_state.current_grade = "高三"
 
 try:
     ADMIN_PASSWORD = st.secrets["ADMIN_PWD"]
@@ -98,33 +99,46 @@ except Exception as e:
     st.error("⚠️ 系统配置读取失败，请检查 Streamlit 后台的 Secrets。")
     st.stop()
 
-if AI_API_KEY: client = openai.OpenAI(api_key=AI_API_KEY, base_url="https://api.deepseek.com")
-else: client = None
+if AI_API_KEY:
+    client = openai.OpenAI(api_key=AI_API_KEY, base_url="https://api.deepseek.com")
+else:
+    client = None
 
 # ==============================================================================
-# 🛠️ 核心引擎与数据缓存
+# 🛠️ 核心引擎与数据缓存 (🛡️ 彻底修复无考号、无表头闪退)
 # ==============================================================================
-def clean_url(url): return str(url).strip() if pd.notna(url) and str(url).strip().lower() != 'nan' else ""
-def clean_str(val): return str(val).strip()[:-2] if pd.notna(val) and str(val).strip().endswith('.0') else str(val).strip() if pd.notna(val) else ""
-def clean_name(val): return str(val).replace(" ", "").strip() if pd.notna(val) else ""
+def clean_url(url): 
+    return str(url).strip() if pd.notna(url) and str(url).strip().lower() != 'nan' else ""
+
+def clean_str(val): 
+    if not pd.notna(val): return ""
+    val_str = str(val).strip()
+    return val_str[:-2] if val_str.endswith('.0') else val_str
+
+def clean_name(val): 
+    return str(val).replace(" ", "").strip() if pd.notna(val) else ""
 
 def normalize_class_name(c):
     if pd.isna(c) or not str(c).strip(): return "未分班"
     c = str(c).replace(" ", "").strip()
-    for k, v in {'1':'一','2':'二','3':'三','4':'四','5':'五','6':'六','7':'七','8':'八','9':'九','0':'零'}.items(): c = c.replace(k, v)
+    for k, v in {'1':'一','2':'二','3':'三','4':'四','5':'五','6':'六','7':'七','8':'八','9':'九','0':'零'}.items(): 
+        c = c.replace(k, v)
     c = c.replace("高三","").replace("高二","").replace("高一","").replace("年级","").replace("()","").replace("（）","")
     if not c.endswith("班"): c += "班"
     return c
 
 @st.cache_data(ttl=300)
 def load_exam_config(url):
-    try: return pd.read_csv(url, on_bad_lines='skip')
-    except: return pd.DataFrame()
+    try:
+        return pd.read_csv(url, on_bad_lines='skip')
+    except:
+        return pd.DataFrame()
 
 # 🛡️ 航天级智能云端读取：自动修补空表头
 @st.cache_data(ttl=600, show_spinner=False)
 def load_cloud_data(url):
-    if not url or not url.strip(): return None
+    if not url or not url.strip(): 
+        return None
     try:
         df_raw = pd.read_csv(url, on_bad_lines='skip', header=None)
         header_idx = 0
@@ -197,7 +211,8 @@ def build_master_df(grade_key):
                         s_id = clean_str(row[id_c]) if id_c and pd.notna(row[id_c]) else s_name 
                         s_cls = normalize_class_name(row[cls_c]) if cls_c else "未分班"
                         
-                        if s_name: res.append({'姓名': s_name, '考号': s_id, '班级': s_cls, sub: round(tot, 1)})
+                        if s_name: 
+                            res.append({'姓名': s_name, '考号': s_id, '班级': s_cls, sub: round(tot, 1)})
                     
                     if res: 
                         temp_df = pd.DataFrame(res)
@@ -221,13 +236,14 @@ def build_master_df(grade_key):
         if '文' in cls_n or '史' in cls_n: return "历史方向"
         if '理' in cls_n or '物' in cls_n: return "物理方向"
         return "综合方向"
+        
     master['方向'] = master.apply(get_dir, axis=1)
     master['总分班级排名'] = master.groupby(['班级', '方向'])['总分'].rank(ascending=False, method='min').fillna(0).astype(int)
     master['总分年级排名'] = master.groupby(['方向'])['总分'].rank(ascending=False, method='min').fillna(0).astype(int)
     return master, latest_exam, exams
 
 # ==============================================================================
-# 🎨 导出与排版引擎 (分班 Sheet 已恢复)
+# 🎨 导出与排版引擎
 # ==============================================================================
 def render_html_table(df):
     html = """
@@ -337,15 +353,19 @@ def generate_ai_doc(title, content):
 def get_ai_grouped_advice_for_teacher(grade, subject, grouped_data_str):
     if not client: return "⚠️ AI 尚未配置。"
     prompt = f"你是资深的{grade}{subject}教研专家。以下是我所带班级薄弱知识点及对应的具体学生名单（得分率不足60%）：\n{grouped_data_str}\n请生成一份「精准靶向辅导与分层教学报告」，深度剖析并给出具体措施，必须自然提及学生名字。"
-    try: res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是精准教研专家AI。"}, {"role": "user", "content": prompt}]); return res.choices[0].message.content
-    except: return "AI 生成失败"
+    try: 
+        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是精准教研专家AI。"}, {"role": "user", "content": prompt}])
+        return res.choices[0].message.content
+    except: 
+        return "AI 生成失败"
 
 @st.cache_data(ttl=2592000, show_spinner=False)
 def get_ai_compare_advice(sheet_a, sheet_b, metric, class_avg_str, top_improvers_str, bottom_regressors_str):
     if not client: return "⚠️ AI 尚未配置。"
-    
-    if metric == "总分": focus_instruction = "【分析方向指令】：本次对比的是「总分」。请从各科均衡发展、时间分配、考试心态、整体复习策略等宏观教务管理角度，为年级主任和班主任提供策略。"
-    else: focus_instruction = f"【分析方向指令】：本次对比的是单科「{metric}」。请深入该学科的知识体系，从微观教研、课堂教学改进、单科培优补差等专业学科角度，为{metric}备课组和任课教师提供落地方案。"
+    if metric == "总分": 
+        focus_instruction = "【分析方向指令】：本次对比的是「总分」。请从各科均衡发展、时间分配、考试心态、整体复习策略等宏观教务管理角度，为年级主任和班主任提供策略。"
+    else: 
+        focus_instruction = f"【分析方向指令】：本次对比的是单科「{metric}」。请深入该学科的知识体系，从微观教研、课堂教学改进、单科培优补差等专业学科角度，为{metric}备课组和任课教师提供落地方案。"
 
     prompt = f"""你是资深的高中教务数据分析专家。请基于以下真实考试数据，生成一份【{sheet_b}】对比【{sheet_a}】的【{metric}】学情进退步诊断报告。
 {focus_instruction}
@@ -356,11 +376,14 @@ def get_ai_compare_advice(sheet_a, sheet_b, metric, class_avg_str, top_improvers
 3. 【{metric}】需重点关注的退步生预警（归因与辅导建议）：
 {bottom_regressors_str}
 请使用专业、干练的语言，结构化输出报告，给出极具落地性的教研调整建议。"""
-    try: res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是资深教务数据分析AI。"}, {"role": "user", "content": prompt}]); return res.choices[0].message.content
-    except: return "AI 生成失败"
+    try: 
+        res = client.chat.completions.create(model="deepseek-chat", messages=[{"role": "system", "content": "你是资深教务数据分析AI。"}, {"role": "user", "content": prompt}])
+        return res.choices[0].message.content
+    except: 
+        return "AI 生成失败"
 
 # ==============================================================================
-# 🌟 智能解析器缓存提速 (自动处理双层、单层和残缺表头)
+# 🌟 本地 Excel 智能解析器
 # ==============================================================================
 @st.cache_data(ttl=600, show_spinner=False)
 def smart_parse_excel(file_bytes, sheet_name):
@@ -449,7 +472,8 @@ if st.session_state.teacher_role:
         st.divider()
         st.button("🚪 退出", on_click=logout, use_container_width=True, type="secondary")
         if selected_grade != st.session_state.current_grade:
-            st.session_state.current_grade = selected_grade; st.rerun()
+            st.session_state.current_grade = selected_grade
+            st.rerun()
 
 # ==============================================================================
 # 🚪 登录界面
@@ -463,8 +487,11 @@ if not st.session_state.teacher_role:
             t_name = st.text_input("👤 教职工姓名 (需与学校花名册一致)")
             pwd = st.text_input("🔐 访问密码", type="password")
             if st.form_submit_button("安全验证并进入", use_container_width=True):
-                try: roster_df = pd.read_csv(URL_TEACHER_ROSTER, on_bad_lines='skip')
-                except: roster_df = None
+                try: 
+                    roster_df = pd.read_csv(URL_TEACHER_ROSTER, on_bad_lines='skip')
+                except: 
+                    roster_df = None
+                    
                 if roster_df is not None and '教师姓名' in roster_df.columns:
                     t_info = roster_df[roster_df['教师姓名'].astype(str).str.strip() == t_name.strip()]
                     if not t_info.empty:
@@ -475,14 +502,19 @@ if not st.session_state.teacher_role:
                         elif actual_role in HOMEROOM_ROLES and (pwd == HOMEROOM_PASSWORD or pwd == ADMIN_PASSWORD): is_auth = True
                         elif actual_role in SUBJECT_HEAD_ROLES and (pwd == TEACHER_PASSWORD or pwd == ADMIN_PASSWORD): is_auth = True
                         elif actual_role in TEACHER_ROLES and (pwd == TEACHER_PASSWORD or pwd == ADMIN_PASSWORD): is_auth = True
+                        
                         if is_auth:
-                            st.session_state.teacher_role = actual_role; st.session_state.teacher_name = t_name.strip()
+                            st.session_state.teacher_role = actual_role
+                            st.session_state.teacher_name = t_name.strip()
                             st.session_state.teacher_subject = str(info.get('学科', '')).strip()
                             st.session_state.teacher_classes = [normalize_class_name(c) for c in re.sub(r'[，、。；/|\s]+', ',', str(info.get('管理班级', ''))).split(',') if c.strip()]
                             st.rerun()
-                        else: st.error("❌ 密码错误或权限不匹配。")
-                    else: st.error(f"❌ 权限表中未找到【{t_name}】。")
-                else: st.error("⚠️ 无法读取教师权限表。")
+                        else: 
+                            st.error("❌ 密码错误或权限不匹配。")
+                    else: 
+                        st.error(f"❌ 权限表中未找到【{t_name}】。")
+                else: 
+                    st.error("⚠️ 无法读取教师权限表。")
 
 # ==============================================================================
 # 📊 核心业务区
@@ -523,6 +555,9 @@ else:
                 
                 name_col_a = find_target_column(df_a.columns, ['姓名', '名字', '学生'])
                 name_col_b = find_target_column(df_b.columns, ['姓名', '名字', '学生'])
+                
+                if not name_col_a and len(df_a.columns) > 1: name_col_a = df_a.columns[1]
+                if not name_col_b and len(df_b.columns) > 1: name_col_b = df_b.columns[1]
                 
                 if compare_metric == "总分":
                     metric_kws = ['总分赋分_分数', '总分_分数', '总分', '成绩', '赋分']
@@ -629,9 +664,7 @@ else:
                                 fig.update_layout(dragmode=False, plot_bgcolor='rgba(248, 250, 252, 0.5)', paper_bgcolor='white', margin=dict(t=20, b=20, l=20, r=20), height=450, xaxis_title=f"X: {sheet_a} {compare_metric}", yaxis_title=f"Y: {sheet_b} {compare_metric}")
                                 st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
 
-                            # ==========================================
                             # 🎯 双考上线率进退步达标监控
-                            # ==========================================
                             st.divider()
                             st.markdown(f"#### 🎯 【{compare_metric}】双考上线率进退步监控")
                             with st.container(border=True):
@@ -728,7 +761,7 @@ else:
                                 st.info(f"👆 请在上方输入框内设定两次考试的「特控线」或「本科线」，系统将立即为您计算班级达标率及边缘生转化情况！")
 
                         # ==========================================
-                        # AI
+                        # 🧠 全校学情进退步 AI 分析决策
                         # ==========================================
                         st.divider()
                         st.markdown("#### 🧠 全校学情进退步 AI 分析决策")
@@ -756,9 +789,9 @@ else:
                                 st.download_button(label="📥 下载 Word 格式分析报告", data=file_data, file_name=file_name, mime=mime_type, type="primary", key=f"down_btn_{ai_compare_key}")
 
     # =========================================================================
-    # 常规模块
+    # 常规模块：如果不是“多考对比”，则走常规的云端数据流
     # =========================================================================
-    elif menu_sel != "本地多考对比":
+    else:
         master_df, LATEST_EXAM, EXAMS_LIST = build_master_df(st.session_state.current_grade)
         
         if master_df is not None and not master_df.empty:
@@ -798,7 +831,9 @@ else:
                         metric_col = c_sel.selectbox("隐藏下拉", avail_metrics, label_visibility="collapsed")
                         st.markdown("<br>", unsafe_allow_html=True)
                     else:
-                        if subject not in df_filtered.columns: st.warning(f"当前考试未配置您的学科【{subject}】的数据。"); st.stop()
+                        if subject not in df_filtered.columns: 
+                            st.warning(f"当前考试未配置您的学科【{subject}】的数据。")
+                            st.stop()
                     
                     overall_avg = df_filtered[metric_col].mean().round(1) if total_stu > 0 else 0
                     class_avgs = df_filtered.groupby('班级')[metric_col].mean()
@@ -820,7 +855,6 @@ else:
                         fig_bar.update_layout(dragmode=False, showlegend=False, yaxis_range=[0, y_max], plot_bgcolor='rgba(248, 250, 252, 0.5)', paper_bgcolor='white', margin=dict(t=60, b=30, l=30, r=30), xaxis_title=None, yaxis_title=None, yaxis=dict(showgrid=True, gridcolor='#F1F5F9', gridwidth=1))
                         with st.container(border=True): st.plotly_chart(fig_bar, use_container_width=True, config=CHART_CONFIG)
 
-                    # 常规单考上线率
                     st.markdown("<p style='font-size: 16px; font-weight: bold; color: #0F172A; margin-top: 30px;'>🎯 【目标考核】单次考试上线率达标监控</p>", unsafe_allow_html=True)
                     with st.container(border=True):
                         c_l1, c_l2, c_l3 = st.columns([1, 1, 2])
@@ -878,9 +912,12 @@ else:
                             st.markdown(html_stats, unsafe_allow_html=True)
                             file_data, file_name, mime_type = generate_excel_download(df_stats, f"上线率统计_{metric_col}", f"【{LATEST_EXAM['name']}】{metric_col}上线率报表")
                             st.download_button(label="📥 下载各班上线率统计报表 (Excel)", data=file_data, file_name=file_name, mime=mime_type, type="secondary")
-                        else: st.info(f"👆 请在上方输入框内设定【{metric_col}】的「特控线」或「本科线」，系统将立即为您进行群体及各班的达标率动态测算。")
+                        else: 
+                            st.info(f"👆 请在上方输入框内设定【{metric_col}】的「特控线」或「本科线」，系统将立即为您进行群体及各班的达标率动态测算。")
 
+                # =====================================================================
                 # 常规二：成绩明细表
+                # =====================================================================
                 elif menu_sel == "成绩明细表":
                     if is_single_subject_view:
                         st.info(f"💡 当前为学科专属视图，仅展示【{subject}】的单科成绩及排名。")
@@ -891,7 +928,8 @@ else:
                             render_html_table(table_to_show)
                             file_data, file_name, mime_type = generate_excel_download(table_to_show, f"【{st.session_state.current_grade}】_{subject}明细", f"【{LATEST_EXAM['name']}】{subject}成绩单", split_by_class=True)
                             st.download_button(label="📥 下载精美 Excel 成绩单 (内含各班分表)", data=file_data, file_name=file_name, mime=mime_type, type="primary")
-                        else: st.warning(f"当前考试中未找到您的学科【{subject}】。")
+                        else: 
+                            st.warning(f"当前考试中未找到您的学科【{subject}】。")
                     else:
                         st.info("💡 当前为全科汇总视图。")
                         cols = df_filtered.columns.tolist()
@@ -902,7 +940,9 @@ else:
                         file_data, file_name, mime_type = generate_excel_download(table_to_show, f"【{st.session_state.current_grade}】_{adm_direction}全科明细", f"【{LATEST_EXAM['name']}】{adm_direction}成绩汇总单", split_by_class=True)
                         st.download_button(label="📥 下载全科 Excel 汇总单 (内含各班分表)", data=file_data, file_name=file_name, mime=mime_type, type="primary")
 
+                # =====================================================================
                 # 常规三：历次追踪分析
+                # =====================================================================
                 elif menu_sel == "历次追踪分析":
                     st.info("🔍 在下方下拉框中搜索学生姓名，系统将跨越“时间胶囊”自动聚合该生的所有历史轨迹！")
                     student_options = df_filtered.apply(lambda x: f"{x['班级']} | {x['姓名']} | 考号:{x['考号']}", axis=1).tolist()
@@ -966,7 +1006,8 @@ else:
                                             fig.update_traces(line_color="#3B82F6", marker=dict(size=10))
                                             fig.update_layout(dragmode=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', yaxis=dict(showgrid=True, gridcolor='#F1F5F9'))
                                             st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
-                                        else: st.warning(f"未检索到该生【{subject}】的历史成绩。")
+                                        else: 
+                                            st.warning(f"未检索到该生【{subject}】的历史成绩。")
                                     else:
                                         t_col1, t_col2 = st.columns(2)
                                         with t_col1:
@@ -985,7 +1026,9 @@ else:
                                                 fig3.update_layout(dragmode=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', yaxis=dict(showgrid=True, gridcolor='#F1F5F9'))
                                                 st.plotly_chart(fig3, use_container_width=True, config=CHART_CONFIG)
 
+                # =====================================================================
                 # 常规四：AI 教研中心
+                # =====================================================================
                 elif menu_sel == "AI 教研中心":
                     st.info("🧠 欢迎进入 AI 教研舱。系统将自动抓取底层题库，计算全班单题得分率，并进行智能聚类！")
                     analyze_subject = subject
@@ -995,7 +1038,8 @@ else:
                             st.markdown("<p style='font-size: 14px; font-weight: bold; color: #64748B; margin-bottom: -10px;'>⚙️ 选择要进行 AI 诊断的学科</p>", unsafe_allow_html=True)
                             c_sel, _ = st.columns([1, 3])
                             analyze_subject = c_sel.selectbox("隐藏下拉", avail_subs, label_visibility="collapsed")
-                        else: analyze_subject = None
+                        else: 
+                            analyze_subject = None
                     
                     if analyze_subject and LATEST_EXAM and LATEST_EXAM.get(analyze_subject):
                         df_diag = load_cloud_data(LATEST_EXAM[analyze_subject])
@@ -1006,6 +1050,7 @@ else:
                                 if '姓名' in cstr: name_c = cstr
                                 elif '考号' in cstr or '学号' in cstr: id_c = cstr
                                 elif '班级' in cstr: cls_c = cstr
+                                
                             if name_c:
                                 def is_my_scope(c_val):
                                     c1 = normalize_class_name(c_val)
@@ -1014,8 +1059,10 @@ else:
                                         if my_c in c1 or c1 in my_c: return True
                                     return False
                                 
-                                if cls_c: df_diag_my = df_diag[df_diag[cls_c].apply(is_my_scope)]
-                                else: df_diag_my = df_diag
+                                if cls_c: 
+                                    df_diag_my = df_diag[df_diag[cls_c].apply(is_my_scope)]
+                                else: 
+                                    df_diag_my = df_diag
                                 
                                 if not df_diag_my.empty:
                                     k_stats, weak_group_map = {}, {}
@@ -1026,8 +1073,10 @@ else:
                                         q_name = cstr.strip()
                                         kp = q_name
                                         if kp == "" or kp.startswith("Unnamed"): kp = q_name
+                                        
                                         try: full = float(pd.to_numeric(df_diag_my[col], errors='coerce').max())
                                         except: full = 0
+                                        
                                         if full > 0:
                                             if kp not in k_stats: k_stats[kp] = []
                                             k_stats[kp].append(pd.to_numeric(df_diag_my[col], errors='coerce').mean() / full)
@@ -1038,6 +1087,7 @@ else:
                                                 if score < full * 0.6: 
                                                     if kp not in weak_group_map: weak_group_map[kp] = []
                                                     if stu_n and stu_n not in weak_group_map[kp]: weak_group_map[kp].append(stu_n)
+                                                    
                                     if k_stats:
                                         with st.container(border=True):
                                             k_final = [{"知识点": kp, "群体整体掌握率": round(sum(rates)/len(rates)*100, 1)} for kp, rates in k_stats.items()]
@@ -1073,4 +1123,7 @@ else:
                                                     doc_title = f"【{LATEST_EXAM['name']}】{analyze_subject}_AI教研报告"
                                                     file_data, file_name, mime_type = generate_ai_doc(doc_title, saved_reply)
                                                     st.download_button(label="📥 下载 Word 排版报告", data=file_data, file_name=file_name, mime=mime_type, type="primary")
-                    else: st.warning(f"目前缺少【{analyze_subject}】的单题明细表，无法进行 AI 深度诊断。")
+                    else: 
+                        st.warning(f"目前缺少【{analyze_subject}】的单题明细表，无法进行 AI 深度诊断。")
+        else:
+            st.warning("📡 尚未配置数据或当前年级无考试记录。")
