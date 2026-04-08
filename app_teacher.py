@@ -121,7 +121,7 @@ def load_exam_config(url):
     try: return pd.read_csv(url, on_bad_lines='skip')
     except: return pd.DataFrame()
 
-# 🛡️ 航天级智能云端读取
+# 🛡️ 航天级智能云端读取：自动修补空表头
 @st.cache_data(ttl=600, show_spinner=False)
 def load_cloud_data(url):
     if not url or not url.strip(): return None
@@ -227,7 +227,7 @@ def build_master_df(grade_key):
     return master, latest_exam, exams
 
 # ==============================================================================
-# 🎨 导出与排版引擎
+# 🎨 导出与排版引擎 (分班 Sheet 已恢复)
 # ==============================================================================
 def render_html_table(df):
     html = """
@@ -343,8 +343,10 @@ def get_ai_grouped_advice_for_teacher(grade, subject, grouped_data_str):
 @st.cache_data(ttl=2592000, show_spinner=False)
 def get_ai_compare_advice(sheet_a, sheet_b, metric, class_avg_str, top_improvers_str, bottom_regressors_str):
     if not client: return "⚠️ AI 尚未配置。"
+    
     if metric == "总分": focus_instruction = "【分析方向指令】：本次对比的是「总分」。请从各科均衡发展、时间分配、考试心态、整体复习策略等宏观教务管理角度，为年级主任和班主任提供策略。"
     else: focus_instruction = f"【分析方向指令】：本次对比的是单科「{metric}」。请深入该学科的知识体系，从微观教研、课堂教学改进、单科培优补差等专业学科角度，为{metric}备课组和任课教师提供落地方案。"
+
     prompt = f"""你是资深的高中教务数据分析专家。请基于以下真实考试数据，生成一份【{sheet_b}】对比【{sheet_a}】的【{metric}】学情进退步诊断报告。
 {focus_instruction}
 1. 各班【{metric}】平均进步幅度：
@@ -358,7 +360,7 @@ def get_ai_compare_advice(sheet_a, sheet_b, metric, class_avg_str, top_improvers
     except: return "AI 生成失败"
 
 # ==============================================================================
-# 🌟 本地 Excel 智能解析器
+# 🌟 智能解析器缓存提速 (自动处理双层、单层和残缺表头)
 # ==============================================================================
 @st.cache_data(ttl=600, show_spinner=False)
 def smart_parse_excel(file_bytes, sheet_name):
@@ -521,9 +523,6 @@ else:
                 
                 name_col_a = find_target_column(df_a.columns, ['姓名', '名字', '学生'])
                 name_col_b = find_target_column(df_b.columns, ['姓名', '名字', '学生'])
-                
-                if not name_col_a and len(df_a.columns) > 1: name_col_a = df_a.columns[1]
-                if not name_col_b and len(df_b.columns) > 1: name_col_b = df_b.columns[1]
                 
                 if compare_metric == "总分":
                     metric_kws = ['总分赋分_分数', '总分_分数', '总分', '成绩', '赋分']
@@ -728,7 +727,9 @@ else:
                             else:
                                 st.info(f"👆 请在上方输入框内设定两次考试的「特控线」或「本科线」，系统将立即为您计算班级达标率及边缘生转化情况！")
 
+                        # ==========================================
                         # AI
+                        # ==========================================
                         st.divider()
                         st.markdown("#### 🧠 全校学情进退步 AI 分析决策")
                         ai_compare_key = f"ai_comp_{sheet_a}_{sheet_b}_{compare_metric}"
