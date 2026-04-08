@@ -5,7 +5,6 @@ import plotly.express as px
 from streamlit_option_menu import option_menu
 import openai
 import os
-import functools
 import io
 import re
 
@@ -102,16 +101,11 @@ if AI_API_KEY: client = openai.OpenAI(api_key=AI_API_KEY, base_url="https://api.
 else: client = None
 
 # ==============================================================================
-# 🛠️ 核心引擎与数据缓存 (🛡️ 彻底修复无考号闪退)
+# 🛠️ 核心引擎 (🛡️ 彻底重构的云端防崩溃读取)
 # ==============================================================================
 def clean_url(url): return str(url).strip() if pd.notna(url) and str(url).strip().lower() != 'nan' else ""
 def clean_str(val): return str(val).strip()[:-2] if pd.notna(val) and str(val).strip().endswith('.0') else str(val).strip() if pd.notna(val) else ""
 def clean_name(val): return str(val).replace(" ", "").strip() if pd.notna(val) else ""
-
-@st.cache_data(ttl=300)
-def load_exam_config(url):
-    try: return pd.read_csv(url, on_bad_lines='skip')
-    except: return pd.DataFrame()
 
 def normalize_class_name(c):
     if pd.isna(c) or not str(c).strip(): return "未分班"
@@ -121,12 +115,42 @@ def normalize_class_name(c):
     if not c.endswith("班"): c += "班"
     return c
 
-@st.cache_data(ttl=600)
-def load_data(url, header_lines=0):
-    if not url or not url.strip(): return None
-    try: return pd.read_csv(url, header=header_lines, on_bad_lines='skip')
-    except: return None
+@st.cache_data(ttl=300)
+def load_exam_config(url):
+    try: return pd.read_csv(url, on_bad_lines='skip')
+    except: return pd.DataFrame()
 
+# 🛡️ 航天级智能云端读取：自动修补空表头、处理残缺行
+@st.cache_data(ttl=600, show_spinner=False)
+def load_cloud_data(url):
+    if not url or not url.strip(): return None
+    try:
+        df_raw = pd.read_csv(url, on_bad_lines='skip', header=None)
+        header_idx = 0
+        for idx, row in df_raw.iterrows():
+            row_str = "".join([str(x) for x in row.values])
+            if '姓名' in row_str or '考号' in row_str or '总分' in row_str or '成绩' in row_str:
+                header_idx = idx
+                break
+        
+        df = pd.read_csv(url, on_bad_lines='skip', header=header_idx)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = ["_".join([str(x).strip() for x in c if 'Unnamed' not in str(x) and str(x).strip()!='']) for c in df.columns]
+        else:
+            df.columns = [str(c).strip() for c in df.columns]
+            
+        cols = list(df.columns)
+        for i in range(min(3, len(cols))):
+            c_str = str(cols[i]).strip()
+            if 'Unnamed' in c_str or c_str == '':
+                if i == 1: cols[i] = '姓名'
+                elif i == 0: cols[i] = '序号'
+        df.columns = cols
+        return df.dropna(how='all')
+    except Exception as e:
+        return None
+
+# 🛡️ 安全版合并引擎：告别 KeyError 闪退
 @st.cache_data(ttl=600, show_spinner=False)
 def build_master_df(grade_key):
     config_df = load_exam_config(URL_EXAM_CONFIG)
@@ -145,33 +169,32 @@ def build_master_df(grade_key):
     latest_exam = exams[-1]
     dfs = []
     subs = ['语文','数学','英语','物理','化学','生物','历史','政治','地理']
+    
     for sub in subs:
         url = latest_exam.get(sub)
         if url:
-            df_sub = load_data(url, header_lines=[0,1,2])
+            df_sub = load_cloud_data(url)
             if df_sub is not None:
                 name_c, id_c, cls_c = None, None, None
                 for col in df_sub.columns:
-                    cstr = str(col[0]) if isinstance(col, tuple) else str(col)
-                    if '姓名' in cstr: name_c = col
-                    elif '考号' in cstr or '学号' in cstr: id_c = col
-                    elif '班级' in cstr: cls_c = col
+                    cstr = str(col)
+                    if '姓名' in cstr: name_c = cstr
+                    elif '考号' in cstr or '学号' in cstr: id_c = cstr
+                    elif '班级' in cstr or '班名' in cstr: cls_c = cstr
                 
-                # 🛡️ 核心修复：只要求有姓名列即可，无需考号
                 if name_c:
                     res = []
                     for _, row in df_sub.iterrows():
                         tot = 0
                         for c in df_sub.columns:
-                            cstr = str(c[0]) if isinstance(c, tuple) else str(c)
-                            if c not in [name_c, id_c, cls_c] and '总分' not in cstr and '排名' not in cstr and '名次' not in cstr:
+                            if c not in [name_c, id_c, cls_c] and '总分' not in str(c) and '排名' not in str(c) and '名次' not in str(c):
                                 try:
                                     v = float(row[c])
                                     if pd.notna(v): tot += v
                                 except: pass
                         
                         s_name = clean_name(row[name_c])
-                        # 🛡️ 没有考号就用姓名顶替，绝对不报错
+                        # 如果没有考号列，直接把姓名当考号用，绝对防断裂
                         s_id = clean_str(row[id_c]) if id_c and pd.notna(row[id_c]) else s_name 
                         s_cls = normalize_class_name(row[cls_c]) if cls_c else "未分班"
                         
@@ -184,7 +207,7 @@ def build_master_df(grade_key):
                             
     if not dfs: return None, latest_exam, exams
     
-    # 🛡️ 安全合并机制：取代脆弱的 functools.reduce
+    # 🛡️ 废弃脆弱的 functools.reduce，改用安全的 for 循环合并
     master = dfs[0]
     for i in range(1, len(dfs)):
         master = pd.merge(master, dfs[i], on=['姓名','考号','班级'], how='outer')
@@ -206,7 +229,7 @@ def build_master_df(grade_key):
     return master, latest_exam, exams
 
 # ==============================================================================
-# 🎨 导出与排版引擎 (分班 Sheet 已恢复)
+# 🎨 导出与排版引擎 (分班 Sheet 生成)
 # ==============================================================================
 def render_html_table(df):
     html = """
@@ -339,24 +362,20 @@ def get_ai_compare_advice(sheet_a, sheet_b, metric, class_avg_str, top_improvers
     except: return "AI 生成失败"
 
 # ==============================================================================
-# 🌟 航天级智能解析器 (🛡️ 彻底修复缺失姓名列和多重表头问题)
+# 🌟 本地 Excel 解析器 (🛡️ 彻底修复缺失姓名列和多重表头问题)
 # ==============================================================================
 @st.cache_data(ttl=600, show_spinner=False)
 def smart_parse_excel(file_bytes, sheet_name):
-    # 先无脑读一遍，寻找包含关键特征的行作为表头
     df_raw = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet_name, header=None)
     header_idx = 0
     for idx, row in df_raw.iterrows():
         row_str = "".join([str(x) for x in row.values])
-        # 如果某一行包含这些字眼，说明它一定是真正的表头
         if '姓名' in row_str or '总分' in row_str or '成绩' in row_str or '语文' in row_str:
             header_idx = idx
             break
     
-    # 用找到的准确表头行重新读取
     df = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet_name, header=header_idx)
     
-    # 压平多级表头 (如果有的话)
     if isinstance(df.columns, pd.MultiIndex):
         new_cols = []
         for c in df.columns:
@@ -366,7 +385,6 @@ def smart_parse_excel(file_bytes, sheet_name):
     else:
         df.columns = [str(c).strip() for c in df.columns]
         
-    # 🛡️ 终极防御：如果表头前两列是空的，强行赋予序号和姓名
     cols = list(df.columns)
     for i in range(min(3, len(cols))):
         if 'Unnamed' in cols[i] or cols[i] == '' or cols[i] == '未知列':
@@ -555,7 +573,6 @@ else:
                     else:
                         merged_df = pd.merge(clean_b, clean_a, on='姓名', how='inner')
                         
-                        # 🛡️ 盲区保护：如果没班级列，强行赋予"未分班"
                         if '班级' not in merged_df.columns:
                             merged_df['班级'] = '未分班'
                         
@@ -724,7 +741,7 @@ else:
                         ai_compare_key = f"ai_comp_{sheet_a}_{sheet_b}_{compare_metric}"
                         if st.button("✨ 一键生成全校质量分析报告 (基于底层数据的深层洞察)"):
                             with st.spinner("AI 正在汇聚全校班级数据，深度构建教学建议报告..."):
-                                class_avg_str = "\n".join([f"- 【{r['班级']}】平均波动: {r['分数进步']}分" for _, r in class_avg_progress.iterrows()]) if '班级' in merged_df.columns else "未分班"
+                                class_avg_str = "\n".join([f"- 【{r['班级']}】平均波动: {r['分数进步']}分" for _, r in class_avg_progress.iterrows()])
                                 ai_reply = get_ai_compare_advice(sheet_a, sheet_b, compare_metric, class_avg_str, t_names, b_names)
                                 st.session_state[ai_compare_key] = ai_reply
 
@@ -869,9 +886,7 @@ else:
                             st.download_button(label="📥 下载各班上线率统计报表 (Excel)", data=file_data, file_name=file_name, mime=mime_type, type="secondary")
                         else: st.info(f"👆 请在上方输入框内设定【{metric_col}】的「特控线」或「本科线」，系统将立即为您进行群体及各班的达标率动态测算。")
 
-                # =====================================================================
                 # 常规二：成绩明细表
-                # =====================================================================
                 elif menu_sel == "成绩明细表":
                     if is_single_subject_view:
                         st.info(f"💡 当前为学科专属视图，仅展示【{subject}】的单科成绩及排名。")
@@ -893,9 +908,7 @@ else:
                         file_data, file_name, mime_type = generate_excel_download(table_to_show, f"【{st.session_state.current_grade}】_{adm_direction}全科明细", f"【{LATEST_EXAM['name']}】{adm_direction}成绩汇总单", split_by_class=True)
                         st.download_button(label="📥 下载全科 Excel 汇总单 (内含各班分表)", data=file_data, file_name=file_name, mime=mime_type, type="primary")
 
-                # =====================================================================
                 # 常规三：历次追踪分析
-                # =====================================================================
                 elif menu_sel == "历次追踪分析":
                     st.info("🔍 在下方下拉框中搜索学生姓名，系统将跨越“时间胶囊”自动聚合该生的所有历史轨迹！")
                     student_options = df_filtered.apply(lambda x: f"{x['班级']} | {x['姓名']} | 考号:{x['考号']}", axis=1).tolist()
@@ -914,13 +927,13 @@ else:
                                     for sh in subs_hist:
                                         u = exam.get(sh)
                                         if u:
-                                            d_sub = load_data(u, header_lines=[0,1,2])
+                                            d_sub = load_cloud_data(u)
                                             if d_sub is not None:
                                                 n_c, i_c = None, None
                                                 for col in d_sub.columns:
-                                                    cstr = str(col[0]) if isinstance(col, tuple) else str(col)
-                                                    if '姓名' in cstr: n_c = col
-                                                    elif '考号' in cstr or '学号' in cstr: i_c = col
+                                                    cstr = str(col)
+                                                    if '姓名' in cstr: n_c = cstr
+                                                    elif '考号' in cstr or '学号' in cstr: i_c = cstr
                                                 
                                                 if n_c:
                                                     r_ls = []
@@ -929,15 +942,15 @@ else:
                                                         if test_id == sel_id or test_id == sel_name:
                                                             tot = 0
                                                             for c in d_sub.columns:
-                                                                if c in [n_c, i_c]: continue
-                                                                cstr = str(c[0]) if isinstance(c, tuple) else str(c)
-                                                                if '总分' in cstr or '排名' in cstr or '名次' in cstr: continue
-                                                                try:
-                                                                    v = float(row[c])
-                                                                    if pd.notna(v): tot += v
-                                                                except: pass
+                                                                if c not in [n_c, i_c] and '总分' not in str(c) and '排名' not in str(c) and '名次' not in str(c):
+                                                                    try:
+                                                                        v = float(row[c])
+                                                                        if pd.notna(v): tot += v
+                                                                    except: pass
                                                             r_ls.append({'考号': sel_id, sh: round(tot, 1)})
-                                                    if r_ls: dfs_sub.append(pd.DataFrame(r_ls))
+                                                    if r_ls: 
+                                                        t_df = pd.DataFrame(r_ls)
+                                                        if '考号' in t_df.columns: dfs_sub.append(t_df)
                                     if dfs_sub:
                                         exam_master = dfs_sub[0]
                                         for k in range(1, len(dfs_sub)):
@@ -978,9 +991,7 @@ else:
                                                 fig3.update_layout(dragmode=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', yaxis=dict(showgrid=True, gridcolor='#F1F5F9'))
                                                 st.plotly_chart(fig3, use_container_width=True, config=CHART_CONFIG)
 
-                # =====================================================================
                 # 常规四：AI 教研中心
-                # =====================================================================
                 elif menu_sel == "AI 教研中心":
                     st.info("🧠 欢迎进入 AI 教研舱。系统将自动抓取底层题库，计算全班单题得分率，并进行智能聚类！")
                     analyze_subject = subject
@@ -993,14 +1004,14 @@ else:
                         else: analyze_subject = None
                     
                     if analyze_subject and LATEST_EXAM and LATEST_EXAM.get(analyze_subject):
-                        df_diag = load_data(LATEST_EXAM[analyze_subject], header_lines=[0, 1, 2])
+                        df_diag = load_cloud_data(LATEST_EXAM[analyze_subject])
                         if df_diag is not None:
                             name_c, id_c, cls_c = None, None, None
                             for col in df_diag.columns:
-                                cstr = str(col[0]) if isinstance(col, tuple) else str(col)
-                                if '姓名' in cstr: name_c = col
-                                elif '考号' in cstr or '学号' in cstr: id_c = col
-                                elif '班级' in cstr: cls_c = col
+                                cstr = str(col)
+                                if '姓名' in cstr: name_c = cstr
+                                elif '考号' in cstr or '学号' in cstr: id_c = cstr
+                                elif '班级' in cstr: cls_c = cstr
                             if name_c:
                                 def is_my_scope(c_val):
                                     c1 = normalize_class_name(c_val)
@@ -1016,16 +1027,13 @@ else:
                                     k_stats, weak_group_map = {}, {}
                                     for col in df_diag_my.columns:
                                         if col in [name_c, id_c, cls_c]: continue
-                                        cstr = str(col[0]) if isinstance(col, tuple) else str(col)
-                                        if '总分' in cstr or '排名' in cstr: continue
-                                        q_name = str(col[0]).strip() if isinstance(col, tuple) else str(col).strip()
-                                        kp = str(col[1]).strip() if isinstance(col, tuple) and len(col) > 1 else q_name
+                                        cstr = str(col)
+                                        if '总分' in cstr or '排名' in cstr or '名次' in cstr: continue
+                                        q_name = cstr.strip()
+                                        kp = q_name
                                         if kp == "" or kp.startswith("Unnamed"): kp = q_name
-                                        try: full = float(col[2]) if isinstance(col, tuple) and len(col) > 2 else 0
+                                        try: full = float(pd.to_numeric(df_diag_my[col], errors='coerce').max())
                                         except: full = 0
-                                        if full <= 0:
-                                            try: full = float(pd.to_numeric(df_diag_my[col], errors='coerce').max())
-                                            except: full = 0
                                         if full > 0:
                                             if kp not in k_stats: k_stats[kp] = []
                                             k_stats[kp].append(pd.to_numeric(df_diag_my[col], errors='coerce').mean() / full)
