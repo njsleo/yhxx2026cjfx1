@@ -5,6 +5,7 @@ import plotly.express as px
 from streamlit_option_menu import option_menu
 import openai
 import os
+import functools
 import io
 import re
 
@@ -101,7 +102,7 @@ if AI_API_KEY: client = openai.OpenAI(api_key=AI_API_KEY, base_url="https://api.
 else: client = None
 
 # ==============================================================================
-# 🛠️ 核心引擎 (🛡️ 彻底重构的云端防崩溃读取)
+# 🛠️ 核心引擎与数据缓存
 # ==============================================================================
 def clean_url(url): return str(url).strip() if pd.notna(url) and str(url).strip().lower() != 'nan' else ""
 def clean_str(val): return str(val).strip()[:-2] if pd.notna(val) and str(val).strip().endswith('.0') else str(val).strip() if pd.notna(val) else ""
@@ -120,7 +121,7 @@ def load_exam_config(url):
     try: return pd.read_csv(url, on_bad_lines='skip')
     except: return pd.DataFrame()
 
-# 🛡️ 航天级智能云端读取：自动修补空表头、处理残缺行
+# 🛡️ 航天级智能云端读取
 @st.cache_data(ttl=600, show_spinner=False)
 def load_cloud_data(url):
     if not url or not url.strip(): return None
@@ -150,7 +151,6 @@ def load_cloud_data(url):
     except Exception as e:
         return None
 
-# 🛡️ 安全版合并引擎：告别 KeyError 闪退
 @st.cache_data(ttl=600, show_spinner=False)
 def build_master_df(grade_key):
     config_df = load_exam_config(URL_EXAM_CONFIG)
@@ -194,7 +194,6 @@ def build_master_df(grade_key):
                                 except: pass
                         
                         s_name = clean_name(row[name_c])
-                        # 如果没有考号列，直接把姓名当考号用，绝对防断裂
                         s_id = clean_str(row[id_c]) if id_c and pd.notna(row[id_c]) else s_name 
                         s_cls = normalize_class_name(row[cls_c]) if cls_c else "未分班"
                         
@@ -207,7 +206,6 @@ def build_master_df(grade_key):
                             
     if not dfs: return None, latest_exam, exams
     
-    # 🛡️ 废弃脆弱的 functools.reduce，改用安全的 for 循环合并
     master = dfs[0]
     for i in range(1, len(dfs)):
         master = pd.merge(master, dfs[i], on=['姓名','考号','班级'], how='outer')
@@ -229,7 +227,7 @@ def build_master_df(grade_key):
     return master, latest_exam, exams
 
 # ==============================================================================
-# 🎨 导出与排版引擎 (分班 Sheet 生成)
+# 🎨 导出与排版引擎
 # ==============================================================================
 def render_html_table(df):
     html = """
@@ -345,10 +343,8 @@ def get_ai_grouped_advice_for_teacher(grade, subject, grouped_data_str):
 @st.cache_data(ttl=2592000, show_spinner=False)
 def get_ai_compare_advice(sheet_a, sheet_b, metric, class_avg_str, top_improvers_str, bottom_regressors_str):
     if not client: return "⚠️ AI 尚未配置。"
-    
     if metric == "总分": focus_instruction = "【分析方向指令】：本次对比的是「总分」。请从各科均衡发展、时间分配、考试心态、整体复习策略等宏观教务管理角度，为年级主任和班主任提供策略。"
     else: focus_instruction = f"【分析方向指令】：本次对比的是单科「{metric}」。请深入该学科的知识体系，从微观教研、课堂教学改进、单科培优补差等专业学科角度，为{metric}备课组和任课教师提供落地方案。"
-
     prompt = f"""你是资深的高中教务数据分析专家。请基于以下真实考试数据，生成一份【{sheet_b}】对比【{sheet_a}】的【{metric}】学情进退步诊断报告。
 {focus_instruction}
 1. 各班【{metric}】平均进步幅度：
@@ -362,7 +358,7 @@ def get_ai_compare_advice(sheet_a, sheet_b, metric, class_avg_str, top_improvers
     except: return "AI 生成失败"
 
 # ==============================================================================
-# 🌟 本地 Excel 解析器 (🛡️ 彻底修复缺失姓名列和多重表头问题)
+# 🌟 本地 Excel 智能解析器
 # ==============================================================================
 @st.cache_data(ttl=600, show_spinner=False)
 def smart_parse_excel(file_bytes, sheet_name):
@@ -391,7 +387,6 @@ def smart_parse_excel(file_bytes, sheet_name):
             if i == 1: cols[i] = '姓名'
             elif i == 0: cols[i] = '序号'
     df.columns = cols
-    
     return df.dropna(how='all')
 
 def find_target_column(df_columns, keywords):
@@ -733,15 +728,13 @@ else:
                             else:
                                 st.info(f"👆 请在上方输入框内设定两次考试的「特控线」或「本科线」，系统将立即为您计算班级达标率及边缘生转化情况！")
 
-                        # ==========================================
                         # AI
-                        # ==========================================
                         st.divider()
                         st.markdown("#### 🧠 全校学情进退步 AI 分析决策")
                         ai_compare_key = f"ai_comp_{sheet_a}_{sheet_b}_{compare_metric}"
                         if st.button("✨ 一键生成全校质量分析报告 (基于底层数据的深层洞察)"):
                             with st.spinner("AI 正在汇聚全校班级数据，深度构建教学建议报告..."):
-                                class_avg_str = "\n".join([f"- 【{r['班级']}】平均波动: {r['分数进步']}分" for _, r in class_avg_progress.iterrows()])
+                                class_avg_str = "\n".join([f"- 【{r['班级']}】平均波动: {r['分数进步']}分" for _, r in class_avg_progress.iterrows()]) if '班级' in merged_df.columns else "未分班"
                                 ai_reply = get_ai_compare_advice(sheet_a, sheet_b, compare_metric, class_avg_str, t_names, b_names)
                                 st.session_state[ai_compare_key] = ai_reply
 
