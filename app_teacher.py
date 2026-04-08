@@ -317,22 +317,45 @@ def get_ai_compare_advice(sheet_a, sheet_b, metric, class_avg_str, top_improvers
     except: return "AI 生成失败"
 
 # ==============================================================================
-# 🌟 智能解析器缓存提速
+# 🌟 智能表头解析器核心升级版 (自动适配单层与双层)
 # ==============================================================================
 @st.cache_data(ttl=600, show_spinner=False)
 def smart_parse_excel(file_bytes, sheet_name):
-    df = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet_name, header=[0, 1])
-    new_cols = []
-    for c in df.columns:
-        c0, c1 = str(c[0]).strip(), str(c[1]).strip()
-        if 'Unnamed' in c0: c0 = ''
-        if 'Unnamed' in c1: c1 = ''
-        if c0 and c1 and c0 != c1: new_cols.append(f"{c0}_{c1}")
-        elif c0: new_cols.append(c0)
-        elif c1: new_cols.append(c1)
-        else: new_cols.append("未知列")
-    df.columns = new_cols
-    return df
+    # 尝试无表头读取前几行，进行智能推断
+    df_test = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet_name, header=None, nrows=5)
+    
+    is_single_header = False
+    if len(df_test) > 1:
+        # 如果第二行（索引1）包含数字，说明它是第一条学生记录，即表头只有1层
+        row_1_values = df_test.iloc[1].values
+        if any(isinstance(x, (int, float)) and pd.notna(x) for x in row_1_values):
+            is_single_header = True
+            
+    if is_single_header:
+        df = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet_name, header=0)
+        cols = list(df.columns)
+        # 智能修复空表头或Unnamed
+        for i in range(len(cols)):
+            c_str = str(cols[i]).strip()
+            if 'Unnamed' in c_str or c_str == '':
+                if i == 1: cols[i] = '姓名' # 强行赋予第二列“姓名”
+                elif i == 0: cols[i] = '序号'
+        df.columns = [str(c).strip() for c in cols]
+        return df
+    else:
+        # 传统的双层表头处理逻辑
+        df = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet_name, header=[0, 1])
+        new_cols = []
+        for c in df.columns:
+            c0, c1 = str(c[0]).strip(), str(c[1]).strip()
+            if 'Unnamed' in c0: c0 = ''
+            if 'Unnamed' in c1: c1 = ''
+            if c0 and c1 and c0 != c1: new_cols.append(f"{c0}_{c1}")
+            elif c0: new_cols.append(c0)
+            elif c1: new_cols.append(c1)
+            else: new_cols.append("未知列")
+        df.columns = new_cols
+        return df
 
 def find_target_column(df_columns, keywords):
     for kw in keywords:
@@ -443,10 +466,10 @@ else:
     """, unsafe_allow_html=True)
     
     # =========================================================================
-    # 👑 本地多考对比分析 (动态表名与双轨达标率)
+    # 👑 本地多考对比分析
     # =========================================================================
     if menu_sel == "本地多考对比":
-        st.info("💡 请上传由大型联考判卷系统导出的多 Sheet 成绩表，系统将自动解析、计算进退步，并生成 AI 报告。")
+        st.info("💡 请上传包含各次考试独立Sheet的Excel文件。系统支持单层普通表头和双层复杂表头自动解析。")
         uploaded_file = st.file_uploader("📥 上传判卷系统 Excel 成绩表 (.xlsx / .xls)", type=["xlsx", "xls"])
         
         if uploaded_file:
@@ -483,7 +506,6 @@ else:
                 if not all([name_col_a, name_col_b, score_col_a, score_col_b]):
                     st.error(f"❌ 无法从表格中自动识别到「姓名」或「{compare_metric}」列，请检查 Excel 格式是否标准。")
                 else:
-                    # 🔴 动态生成带有真实考试名称的列名！
                     base_score_col = f"{sheet_a}_{compare_metric}"
                     comp_score_col = f"{sheet_b}_{compare_metric}"
                     base_rank_col = f"{sheet_a}_校排名"
@@ -561,9 +583,7 @@ else:
                             fig.update_layout(dragmode=False, plot_bgcolor='rgba(248, 250, 252, 0.5)', paper_bgcolor='white', margin=dict(t=20, b=20, l=20, r=20), height=450, xaxis_title=f"X: {sheet_a} {compare_metric}", yaxis_title=f"Y: {sheet_b} {compare_metric}")
                             st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
 
-                        # ==========================================
-                        # 🎯 🔴 核心新增：双考上线率进退步达标监控
-                        # ==========================================
+                        # 🎯 双考上线率进退步达标监控
                         st.divider()
                         st.markdown(f"#### 🎯 【{compare_metric}】双考上线率进退步监控")
                         with st.container(border=True):
@@ -661,9 +681,7 @@ else:
                             else:
                                 st.info(f"👆 请在上方输入框内设定两次考试的「特控线」或「本科线」，系统将立即为您计算班级达标率及边缘生转化情况！")
 
-                        # ==========================================
                         # AI
-                        # ==========================================
                         st.divider()
                         st.markdown("#### 🧠 全校学情进退步 AI 分析决策")
                         ai_compare_key = f"ai_comp_{sheet_a}_{sheet_b}_{compare_metric}"
@@ -718,7 +736,6 @@ else:
             else:
                 is_single_subject_view = role in TEACHER_ROLES + SUBJECT_HEAD_ROLES
                 
-                # 常规一：首页
                 if menu_sel == "首页":
                     total_stu = len(df_filtered)
                     class_count = df_filtered['班级'].nunique()
@@ -752,7 +769,6 @@ else:
                         fig_bar.update_layout(dragmode=False, showlegend=False, yaxis_range=[0, y_max], plot_bgcolor='rgba(248, 250, 252, 0.5)', paper_bgcolor='white', margin=dict(t=60, b=30, l=30, r=30), xaxis_title=None, yaxis_title=None, yaxis=dict(showgrid=True, gridcolor='#F1F5F9', gridwidth=1))
                         with st.container(border=True): st.plotly_chart(fig_bar, use_container_width=True, config=CHART_CONFIG)
 
-                    # 常规单考上线率
                     st.markdown("<p style='font-size: 16px; font-weight: bold; color: #0F172A; margin-top: 30px;'>🎯 【目标考核】单次考试上线率达标监控</p>", unsafe_allow_html=True)
                     with st.container(border=True):
                         c_l1, c_l2, c_l3 = st.columns([1, 1, 2])
@@ -808,13 +824,10 @@ else:
                             html_stats += "</table></div>"
 
                             st.markdown(html_stats, unsafe_allow_html=True)
-                            
                             file_data, file_name, mime_type = generate_excel_download(df_stats, f"上线率统计_{metric_col}", f"【{LATEST_EXAM['name']}】{metric_col}上线率报表")
                             st.download_button(label="📥 下载各班上线率统计报表 (Excel)", data=file_data, file_name=file_name, mime=mime_type, type="secondary")
-                        else:
-                            st.info(f"👆 请在上方输入框内设定【{metric_col}】的「特控线」或「本科线」，系统将立即为您进行群体及各班的达标率动态测算。")
+                        else: st.info(f"👆 请在上方输入框内设定【{metric_col}】的「特控线」或「本科线」，系统将立即为您进行群体及各班的达标率动态测算。")
 
-                # 常规二：成绩明细表
                 elif menu_sel == "成绩明细表":
                     if is_single_subject_view:
                         st.info(f"💡 当前为学科专属视图，仅展示【{subject}】的单科成绩及排名。")
@@ -836,7 +849,6 @@ else:
                         file_data, file_name, mime_type = generate_excel_download(table_to_show, f"【{st.session_state.current_grade}】_{adm_direction}全科明细", f"【{LATEST_EXAM['name']}】{adm_direction}成绩汇总单", split_by_class=True)
                         st.download_button(label="📥 下载全科 Excel 汇总单 (内含各班分表)", data=file_data, file_name=file_name, mime=mime_type, type="primary")
 
-                # 常规三：历次追踪分析
                 elif menu_sel == "历次追踪分析":
                     st.info("🔍 在下方下拉框中搜索学生姓名，系统将跨越“时间胶囊”自动聚合该生的所有历史轨迹！")
                     student_options = df_filtered.apply(lambda x: f"{x['班级']} | {x['姓名']} | 考号:{x['考号']}", axis=1).tolist()
@@ -907,7 +919,6 @@ else:
                                                 fig3.update_layout(dragmode=False, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', yaxis=dict(showgrid=True, gridcolor='#F1F5F9'))
                                                 st.plotly_chart(fig3, use_container_width=True, config=CHART_CONFIG)
 
-                # 常规四：AI 教研中心
                 elif menu_sel == "AI 教研中心":
                     st.info("🧠 欢迎进入 AI 教研舱。系统将自动抓取底层题库，计算全班单题得分率，并进行智能聚类！")
                     analyze_subject = subject
