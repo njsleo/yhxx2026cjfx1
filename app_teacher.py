@@ -15,7 +15,7 @@ import re
 st.set_page_config(page_title="英华教务教研指挥舱", layout="wide", page_icon="🏢", initial_sidebar_state="expanded")
 
 # ==============================================================================
-# 🎨 顶级 SaaS 美学 CSS 样式注入 (极简、紧凑、去白边)
+# 🎨 顶级 SaaS 美学 CSS 样式注入
 # ==============================================================================
 st.markdown("""
 <style>
@@ -102,7 +102,7 @@ if AI_API_KEY: client = openai.OpenAI(api_key=AI_API_KEY, base_url="https://api.
 else: client = None
 
 # ==============================================================================
-# 🛠️ 核心引擎与数据缓存 (🛡️ 彻底修复无考号闪退)
+# 🛠️ 核心引擎与数据缓存
 # ==============================================================================
 def clean_url(url): return str(url).strip() if pd.notna(url) and str(url).strip().lower() != 'nan' else ""
 def clean_str(val): return str(val).strip()[:-2] if pd.notna(val) and str(val).strip().endswith('.0') else str(val).strip() if pd.notna(val) else ""
@@ -114,9 +114,8 @@ def load_exam_config(url):
     except: return pd.DataFrame()
 
 def normalize_class_name(c):
-    if pd.isna(c): return "未分班"
+    if pd.isna(c): return ""
     c = str(c).replace(" ", "").strip()
-    if not c: return "未分班"
     for k, v in {'1':'一','2':'二','3':'三','4':'四','5':'五','6':'六','7':'七','8':'八','9':'九','0':'零'}.items(): c = c.replace(k, v)
     c = c.replace("高三","").replace("高二","").replace("高一","").replace("年级","").replace("()","").replace("（）","")
     if not c.endswith("班"): c += "班"
@@ -157,24 +156,16 @@ def build_master_df(grade_key):
                     if '姓名' in cstr: name_c = col
                     elif '考号' in cstr or '学号' in cstr: id_c = col
                     elif '班级' in cstr: cls_c = col
-                
-                # 🛡️ 无考号盲合补丁：只要有姓名，哪怕没考号也强制合并！没考号就把名字当考号用！
-                if name_c:
+                if name_c and id_c:
                     res = []
                     for _, row in df_sub.iterrows():
                         tot = sum(float(row[c]) for c in df_sub.columns if c not in [name_c, id_c, cls_c] and '总分' not in str(c) and '排名' not in str(c) and pd.notna(row[c]) and str(row[c]).replace('.','',1).isdigit())
                         s_name = clean_name(row[name_c])
-                        # 如果没有id_c列，或者id_c列为空，直接把姓名当唯一标识符赋给考号，绝不报错
-                        s_id = clean_str(row[id_c]) if id_c and pd.notna(row[id_c]) else s_name 
+                        s_id = clean_str(row[id_c])
                         s_cls = normalize_class_name(row[cls_c]) if cls_c else "未分班"
-                        
-                        if s_name: res.append({'姓名': s_name, '考号': s_id, '班级': s_cls, sub: round(tot, 1)})
-                    
+                        if s_id: res.append({'姓名': s_name, '考号': s_id, '班级': s_cls, sub: round(tot, 1)})
                     if res: dfs.append(pd.DataFrame(res))
-                    
     if not dfs: return None, latest_exam, exams
-    
-    # 强制合并，所有 dataframe 此时绝对都包含了 '姓名','考号','班级'
     master = functools.reduce(lambda l, r: pd.merge(l, r, on=['姓名','考号','班级'], how='outer'), dfs)
     present_subs = [s for s in subs if s in master.columns]
     master[present_subs] = master[present_subs].fillna(0)
@@ -193,7 +184,7 @@ def build_master_df(grade_key):
     return master, latest_exam, exams
 
 # ==============================================================================
-# 🎨 导出与排版引擎 (含班级拆分)
+# 🎨 导出与排版引擎
 # ==============================================================================
 def render_html_table(df):
     html = """
@@ -326,40 +317,42 @@ def get_ai_compare_advice(sheet_a, sheet_b, metric, class_avg_str, top_improvers
     except: return "AI 生成失败"
 
 # ==============================================================================
-# 🌟 智能解析器缓存提速 (🛡️ 加入空表头修复)
+# 🌟 航天级智能解析器 (🛡️ 彻底修复缺失姓名列和多重表头问题)
 # ==============================================================================
 @st.cache_data(ttl=600, show_spinner=False)
 def smart_parse_excel(file_bytes, sheet_name):
-    df_test = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet_name, header=None, nrows=5)
-    is_single_header = False
-    if len(df_test) > 1:
-        row_1_values = df_test.iloc[1].values
-        if any(isinstance(x, (int, float)) and pd.notna(x) for x in row_1_values):
-            is_single_header = True
-            
-    if is_single_header:
-        df = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet_name, header=0)
-        cols = list(df.columns)
-        for i in range(len(cols)):
-            c_str = str(cols[i]).strip()
-            if 'Unnamed' in c_str or c_str == '':
-                if i == 1: cols[i] = '姓名'
-                elif i == 0: cols[i] = '序号'
-        df.columns = [str(c).strip() for c in cols]
-        return df
-    else:
-        df = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet_name, header=[0, 1])
+    # 先无脑读一遍，寻找包含关键特征的行作为表头
+    df_raw = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet_name, header=None)
+    header_idx = 0
+    for idx, row in df_raw.iterrows():
+        row_str = "".join([str(x) for x in row.values])
+        # 如果某一行包含这些字眼，说明它一定是表头
+        if '姓名' in row_str or '总分' in row_str or '成绩' in row_str or '语文' in row_str:
+            header_idx = idx
+            break
+    
+    # 用找到的准确表头行重新读取
+    df = pd.read_excel(io.BytesIO(file_bytes), sheet_name=sheet_name, header=header_idx)
+    
+    # 压平多级表头 (如果有的话)
+    if isinstance(df.columns, pd.MultiIndex):
         new_cols = []
         for c in df.columns:
-            c0, c1 = str(c[0]).strip(), str(c[1]).strip()
-            if 'Unnamed' in c0: c0 = ''
-            if 'Unnamed' in c1: c1 = ''
-            if c0 and c1 and c0 != c1: new_cols.append(f"{c0}_{c1}")
-            elif c0: new_cols.append(c0)
-            elif c1: new_cols.append(c1)
-            else: new_cols.append("未知列")
+            c_vals = [str(x).strip() for x in c if 'Unnamed' not in str(x) and str(x).strip() != '']
+            new_cols.append("_".join(c_vals) if c_vals else "未知列")
         df.columns = new_cols
-        return df
+    else:
+        df.columns = [str(c).strip() for c in df.columns]
+        
+    # 🛡️ 终极防御：如果表头前两列是空的，强行赋予序号和姓名
+    cols = list(df.columns)
+    for i in range(min(3, len(cols))):
+        if 'Unnamed' in cols[i] or cols[i] == '' or cols[i] == '未知列':
+            if i == 1: cols[i] = '姓名'
+            elif i == 0: cols[i] = '序号'
+    df.columns = cols
+    
+    return df.dropna(how='all')
 
 def find_target_column(df_columns, keywords):
     for kw in keywords:
@@ -473,7 +466,7 @@ else:
     # 👑 本地多考对比分析
     # =========================================================================
     if menu_sel == "本地多考对比":
-        st.info("💡 请上传包含各次考试独立Sheet的Excel文件。系统支持单层普通表头和双层复杂表头自动解析。")
+        st.info("💡 请上传包含各次考试独立Sheet的Excel文件。系统支持单层、双层及带空行的残缺表头自动智能解析。")
         uploaded_file = st.file_uploader("📥 上传判卷系统 Excel 成绩表 (.xlsx / .xls)", type=["xlsx", "xls"])
         
         if uploaded_file:
@@ -491,8 +484,11 @@ else:
                 df_a = smart_parse_excel(file_bytes, sheet_a)
                 df_b = smart_parse_excel(file_bytes, sheet_b)
                 
-                name_col_a = find_target_column(df_a.columns, ['姓名', '名字'])
-                name_col_b = find_target_column(df_b.columns, ['姓名', '名字'])
+                name_col_a = find_target_column(df_a.columns, ['姓名', '名字', '学生'])
+                name_col_b = find_target_column(df_b.columns, ['姓名', '名字', '学生'])
+                
+                if not name_col_a and len(df_a.columns) > 1: name_col_a = df_a.columns[1]
+                if not name_col_b and len(df_b.columns) > 1: name_col_b = df_b.columns[1]
                 
                 if compare_metric == "总分":
                     metric_kws = ['总分赋分_分数', '总分_分数', '总分', '成绩', '赋分']
@@ -501,138 +497,150 @@ else:
                     metric_kws = [f'{compare_metric}_分数', f'{compare_metric}_赋分', compare_metric]
                     rank_kws = [f'{compare_metric}_校名', f'{compare_metric}_排名', f'{compare_metric}_校排', f'{compare_metric}_名次']
                     
-                score_col_a = find_target_column(df_a.columns, metric_kws)
-                score_col_b = find_target_column(df_b.columns, metric_kws)
-                rank_col_a = find_target_column(df_a.columns, rank_kws)
-                rank_col_b = find_target_column(df_b.columns, rank_kws)
-                class_col_b = find_target_column(df_b.columns, ['班级', '行政班', '总分赋分_班名', '总分_班名', '班名'])
+                score_col_a = find_target_column([c for c in df_a.columns if c != name_col_a], metric_kws)
+                score_col_b = find_target_column([c for c in df_b.columns if c != name_col_b], metric_kws)
+                rank_col_a = find_target_column([c for c in df_a.columns if c not in (name_col_a, score_col_a)], rank_kws)
+                rank_col_b = find_target_column([c for c in df_b.columns if c not in (name_col_b, score_col_b)], rank_kws)
+                class_col_b = find_target_column([c for c in df_b.columns if c not in (name_col_b, score_col_b)], ['班级', '行政班', '总分赋分_班名', '总分_班名', '班名'])
                 
-                if not all([name_col_a, name_col_b, score_col_a, score_col_b]):
-                    st.error(f"❌ 无法从表格中自动识别到「姓名」或「{compare_metric}」列，请检查 Excel 格式是否标准。")
+                if not score_col_a or not score_col_b:
+                    st.error(f"❌ 无法从表格中精准识别到「{compare_metric}」列。请检查 Excel 格式是否标准。")
                 else:
                     base_score_col = f"{sheet_a}_{compare_metric}"
                     comp_score_col = f"{sheet_b}_{compare_metric}"
                     base_rank_col = f"{sheet_a}_校排名"
                     comp_rank_col = f"{sheet_b}_校排名"
                     
-                    cols_a = {name_col_a: '姓名', score_col_a: base_score_col}
+                    cols_a = {name_col_a: '姓名'}
+                    if score_col_a: cols_a[score_col_a] = base_score_col
                     if rank_col_a: cols_a[rank_col_a] = base_rank_col
                     clean_a = df_a[list(cols_a.keys())].rename(columns=cols_a)
                     
-                    cols_b = {name_col_b: '姓名', score_col_b: comp_score_col}
+                    cols_b = {name_col_b: '姓名'}
+                    if score_col_b: cols_b[score_col_b] = comp_score_col
                     if rank_col_b: cols_b[rank_col_b] = comp_rank_col
                     if class_col_b: cols_b[class_col_b] = '班级'
                     clean_b = df_b[list(cols_b.keys())].rename(columns=cols_b)
                     
+                    # 避免重复列带来的干扰
+                    clean_a = clean_a.loc[:, ~clean_a.columns.duplicated()]
+                    clean_b = clean_b.loc[:, ~clean_b.columns.duplicated()]
+                    
                     clean_a[base_score_col] = pd.to_numeric(clean_a[base_score_col], errors='coerce').fillna(0)
                     clean_b[comp_score_col] = pd.to_numeric(clean_b[comp_score_col], errors='coerce').fillna(0)
-                    merged_df = pd.merge(clean_b, clean_a, on='姓名', how='inner')
                     
-                    if merged_df.empty:
-                        st.warning("⚠️ 两次考试中未能匹配到相同姓名的学生数据。请检查是否有同名不同字的情况。")
+                    if '姓名' not in clean_a.columns or '姓名' not in clean_b.columns:
+                        st.error("⚠️ 表格结构异常，未能成功锁定姓名列。")
                     else:
-                        merged_df['分数进步'] = (merged_df[comp_score_col] - merged_df[base_score_col]).round(1)
-                        has_rank = False
-                        if base_rank_col in merged_df.columns and comp_rank_col in merged_df.columns:
-                            has_rank = True
-                            merged_df[base_rank_col] = pd.to_numeric(merged_df[base_rank_col], errors='coerce')
-                            merged_df[comp_rank_col] = pd.to_numeric(merged_df[comp_rank_col], errors='coerce')
-                            merged_df['排名进步'] = merged_df[base_rank_col] - merged_df[comp_rank_col]
-                            merged_df['排名进步'] = merged_df['排名进步'].fillna(0).astype(int)
+                        merged_df = pd.merge(clean_b, clean_a, on='姓名', how='inner')
                         
-                        disp_cols = ['班级', '姓名', base_score_col, comp_score_col, '分数进步']
-                        if has_rank: 
-                            disp_cols.insert(3, base_rank_col)
-                            disp_cols.insert(5, comp_rank_col)
-                            disp_cols.append('排名进步')
-                        disp_df = merged_df[disp_cols].sort_values('分数进步', ascending=False)
+                        # 🛡️ 盲区保护：如果用户表格没班级列，强行赋予"未分班"，阻止崩溃
+                        if '班级' not in merged_df.columns:
+                            merged_df['班级'] = '未分班'
                         
-                        st.markdown("---")
-                        st.markdown(f"#### 🎯 【{sheet_b}】较【{sheet_a}】【{compare_metric}】全景分析")
-                        
-                        top_improvers = merged_df.sort_values(by='分数进步', ascending=False).head(5)
-                        t_names = "、".join([f"【{r.get('班级', '未知')}】{r['姓名']}(+{r['分数进步']}分)" for _, r in top_improvers.iterrows()])
-                        st.success(f"🏅 **全校进步飞跃榜 (Top 5)：** {t_names}")
-                        
-                        bottom_regressors = merged_df.sort_values(by='分数进步', ascending=True).head(5)
-                        b_names = "、".join([f"【{r.get('班级', '未知')}】{r['姓名']}({r['分数进步']}分)" for _, r in bottom_regressors.iterrows()])
-                        st.error(f"🚨 **需重点关注的退步预警 (Bottom 5)：** {b_names}")
-                        
-                        if '班级' in merged_df.columns:
+                        if merged_df.empty:
+                            st.warning("⚠️ 两次考试中未能匹配到相同姓名的学生数据。请检查名字是否有错别字。")
+                        else:
+                            merged_df['分数进步'] = (merged_df[comp_score_col] - merged_df[base_score_col]).round(1)
+                            has_rank = False
+                            if base_rank_col in merged_df.columns and comp_rank_col in merged_df.columns:
+                                has_rank = True
+                                merged_df[base_rank_col] = pd.to_numeric(merged_df[base_rank_col], errors='coerce')
+                                merged_df[comp_rank_col] = pd.to_numeric(merged_df[comp_rank_col], errors='coerce')
+                                merged_df['排名进步'] = merged_df[base_rank_col] - merged_df[comp_rank_col]
+                                merged_df['排名进步'] = merged_df['排名进步'].fillna(0).astype(int)
+                            
+                            disp_cols = ['班级', '姓名', base_score_col, comp_score_col, '分数进步']
+                            if has_rank: 
+                                disp_cols.insert(3, base_rank_col)
+                                disp_cols.insert(5, comp_rank_col)
+                                disp_cols.append('排名进步')
+                            disp_df = merged_df[disp_cols].sort_values('分数进步', ascending=False)
+                            
+                            st.markdown("---")
+                            st.markdown(f"#### 🎯 【{sheet_b}】较【{sheet_a}】【{compare_metric}】全景分析")
+                            
+                            top_improvers = merged_df.sort_values(by='分数进步', ascending=False).head(5)
+                            t_names = "、".join([f"【{r.get('班级', '未知')}】{r['姓名']}(+{r['分数进步']}分)" for _, r in top_improvers.iterrows()])
+                            st.success(f"🏅 **全校进步飞跃榜 (Top 5)：** {t_names}")
+                            
+                            bottom_regressors = merged_df.sort_values(by='分数进步', ascending=True).head(5)
+                            b_names = "、".join([f"【{r.get('班级', '未知')}】{r['姓名']}({r['分数进步']}分)" for _, r in bottom_regressors.iterrows()])
+                            st.error(f"🚨 **需重点关注的退步预警 (Bottom 5)：** {b_names}")
+                            
                             class_avg_progress = merged_df.groupby('班级')['分数进步'].mean().round(1).reset_index()
                             class_avg_progress['Color'] = class_avg_progress['分数进步'].apply(lambda x: '#EF4444' if x < 0 else '#10B981')
                             fig_class = px.bar(class_avg_progress, x='班级', y='分数进步', text_auto=True, title="📊 各班级平均进步幅度横向对比")
                             fig_class.update_traces(marker_color=class_avg_progress['Color'], textposition='outside')
                             fig_class.update_layout(dragmode=False, plot_bgcolor='rgba(248, 250, 252, 0.5)', paper_bgcolor='white', margin=dict(t=40, b=20, l=20, r=20))
                             st.plotly_chart(fig_class, use_container_width=True, config=CHART_CONFIG)
-                        
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        c_table, c_chart = st.columns([1, 1])
-                        with c_table:
-                            st.markdown("<p style='font-size:14px; color:#64748B;'>📝 学生比对明细 (黄色背景为进步生)</p>", unsafe_allow_html=True)
-                            def highlight_progress_yellow(row): return ['background-color: #FEF08A'] * len(row) if row.get('分数进步', 0) > 0 else [''] * len(row)
-                            st.dataframe(disp_df.style.apply(highlight_progress_yellow, axis=1), hide_index=True, height=450, use_container_width=True)
                             
-                            excel_title = f"【{sheet_b}】较【{sheet_a}】{compare_metric}进退步追踪表"
-                            file_data, file_name, mime_type = generate_excel_download(disp_df, f"进退步对比_{compare_metric}", excel_title, split_by_class=True)
-                            st.download_button(label="📥 下载精美比对结果 (已自动拆分班级Sheet)", data=file_data, file_name=file_name, mime=mime_type, type="primary", use_container_width=True)
-                        
-                        with c_chart:
-                            st.markdown(f"<p style='font-size:14px; color:#64748B;'>📈 {compare_metric}四象限分布图 (红虚线为原地踏步线)</p>", unsafe_allow_html=True)
-                            hover_d = ["班级", "分数进步"] if '班级' in merged_df.columns else ["分数进步"]
-                            if has_rank: hover_d.append("排名进步")
-                            fig = px.scatter(merged_df, x=base_score_col, y=comp_score_col, hover_name="姓名", hover_data=hover_d, color="分数进步", color_continuous_scale=px.colors.diverging.RdYlGn)
-                            min_val = min(merged_df[base_score_col].min(), merged_df[comp_score_col].min()) - 10
-                            max_val = max(merged_df[base_score_col].max(), merged_df[comp_score_col].max()) + 10
-                            fig.add_shape(type="line", x0=min_val, y0=min_val, x1=max_val, y1=max_val, line=dict(color="#EF4444", dash="dash"))
-                            fig.update_layout(dragmode=False, plot_bgcolor='rgba(248, 250, 252, 0.5)', paper_bgcolor='white', margin=dict(t=20, b=20, l=20, r=20), height=450, xaxis_title=f"X: {sheet_a} {compare_metric}", yaxis_title=f"Y: {sheet_b} {compare_metric}")
-                            st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
-
-                        # ==========================================
-                        # 🎯 双考上线率进退步达标监控
-                        # ==========================================
-                        st.divider()
-                        st.markdown(f"#### 🎯 【{compare_metric}】双考上线率进退步监控")
-                        with st.container(border=True):
-                            c_l1, c_l2 = st.columns(2)
-                            with c_l1:
-                                st.markdown(f"<p style='font-size:14px; font-weight:bold; color:#334155; margin-bottom:-5px;'>📌 设定【{sheet_a}】分数线</p>", unsafe_allow_html=True)
-                                c_a_te, c_a_ben = st.columns(2)
-                                line_te_a = c_a_te.number_input(f"🏆 {sheet_a} 特控线", min_value=0.0, value=0.0, step=1.0, key="te_a")
-                                line_ben_a = c_a_ben.number_input(f"🎓 {sheet_a} 本科线", min_value=0.0, value=0.0, step=1.0, key="ben_a")
-                            with c_l2:
-                                st.markdown(f"<p style='font-size:14px; font-weight:bold; color:#334155; margin-bottom:-5px;'>📌 设定【{sheet_b}】分数线</p>", unsafe_allow_html=True)
-                                c_b_te, c_b_ben = st.columns(2)
-                                line_te_b = c_b_te.number_input(f"🏆 {sheet_b} 特控线", min_value=0.0, value=0.0, step=1.0, key="te_b")
-                                line_ben_b = c_b_ben.number_input(f"🎓 {sheet_b} 本科线", min_value=0.0, value=0.0, step=1.0, key="ben_b")
-
-                            if (line_te_a > 0 or line_ben_a > 0) or (line_te_b > 0 or line_ben_b > 0):
-                                total_stu_comp = len(merged_df)
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            c_table, c_chart = st.columns([1, 1])
+                            with c_table:
+                                st.markdown("<p style='font-size:14px; color:#64748B;'>📝 学生比对明细 (黄色背景为进步生)</p>", unsafe_allow_html=True)
+                                def highlight_progress_yellow(row): return ['background-color: #FEF08A'] * len(row) if row.get('分数进步', 0) > 0 else [''] * len(row)
+                                st.dataframe(disp_df.style.apply(highlight_progress_yellow, axis=1), hide_index=True, height=450, use_container_width=True)
                                 
-                                base_te_all = len(merged_df[merged_df[base_score_col] >= line_te_a]) if line_te_a > 0 else 0
-                                comp_te_all = len(merged_df[merged_df[comp_score_col] >= line_te_b]) if line_te_b > 0 else 0
-                                base_ben_all = len(merged_df[merged_df[base_score_col] >= line_ben_a]) if line_ben_a > 0 else 0
-                                comp_ben_all = len(merged_df[merged_df[comp_score_col] >= line_ben_b]) if line_ben_b > 0 else 0
+                                excel_title = f"【{sheet_b}】较【{sheet_a}】{compare_metric}进退步追踪表"
+                                file_data, file_name, mime_type = generate_excel_download(disp_df, f"进退步对比_{compare_metric}", excel_title, split_by_class=True)
+                                st.download_button(label="📥 下载精美比对结果 (已自动拆分班级Sheet)", data=file_data, file_name=file_name, mime=mime_type, type="primary", use_container_width=True)
+                            
+                            with c_chart:
+                                st.markdown(f"<p style='font-size:14px; color:#64748B;'>📈 {compare_metric}四象限分布图 (红虚线为原地踏步线)</p>", unsafe_allow_html=True)
+                                hover_d = ["班级", "分数进步"]
+                                if has_rank: hover_d.append("排名进步")
+                                fig = px.scatter(merged_df, x=base_score_col, y=comp_score_col, hover_name="姓名", hover_data=hover_d, color="分数进步", color_continuous_scale=px.colors.diverging.RdYlGn)
+                                min_val = min(merged_df[base_score_col].min(), merged_df[comp_score_col].min()) - 10
+                                max_val = max(merged_df[base_score_col].max(), merged_df[comp_score_col].max()) + 10
+                                fig.add_shape(type="line", x0=min_val, y0=min_val, x1=max_val, y1=max_val, line=dict(color="#EF4444", dash="dash"))
+                                fig.update_layout(dragmode=False, plot_bgcolor='rgba(248, 250, 252, 0.5)', paper_bgcolor='white', margin=dict(t=20, b=20, l=20, r=20), height=450, xaxis_title=f"X: {sheet_a} {compare_metric}", yaxis_title=f"Y: {sheet_b} {compare_metric}")
+                                st.plotly_chart(fig, use_container_width=True, config=CHART_CONFIG)
 
-                                rate_comp_te = round(comp_te_all / total_stu_comp * 100, 1) if total_stu_comp > 0 else 0
-                                rate_comp_ben = round(comp_ben_all / total_stu_comp * 100, 1) if total_stu_comp > 0 else 0
-                                
-                                diff_te_count = comp_te_all - base_te_all
-                                diff_ben_count = comp_ben_all - base_ben_all
+                            # ==========================================
+                            # 🎯 双考上线率进退步达标监控
+                            # ==========================================
+                            st.divider()
+                            st.markdown(f"#### 🎯 【{compare_metric}】双考上线率进退步监控")
+                            with st.container(border=True):
+                                c_l1, c_l2 = st.columns(2)
+                                with c_l1:
+                                    st.markdown(f"<p style='font-size:14px; font-weight:bold; color:#334155; margin-bottom:-5px;'>📌 设定【{sheet_a}】分数线</p>", unsafe_allow_html=True)
+                                    c_a_te, c_a_ben = st.columns(2)
+                                    line_te_a = c_a_te.number_input(f"🏆 {sheet_a} 特控线", min_value=0.0, value=0.0, step=1.0, key="te_a")
+                                    line_ben_a = c_a_ben.number_input(f"🎓 {sheet_a} 本科线", min_value=0.0, value=0.0, step=1.0, key="ben_a")
+                                with c_l2:
+                                    st.markdown(f"<p style='font-size:14px; font-weight:bold; color:#334155; margin-bottom:-5px;'>📌 设定【{sheet_b}】分数线</p>", unsafe_allow_html=True)
+                                    c_b_te, c_b_ben = st.columns(2)
+                                    line_te_b = c_b_te.number_input(f"🏆 {sheet_b} 特控线", min_value=0.0, value=0.0, step=1.0, key="te_b")
+                                    line_ben_b = c_b_ben.number_input(f"🎓 {sheet_b} 本科线", min_value=0.0, value=0.0, step=1.0, key="ben_b")
 
-                                st.markdown(f"""
-                                <div style='background-color: #F8FAFC; padding: 15px; border-radius: 8px; border-left: 4px solid #10B981; margin-top: 15px; margin-bottom: 20px;'>
-                                    <span style='font-size: 15px; color: #334155;'><b>🌐 双考群体达标波动概况：</b></span><br>
-                                    <span style='font-size: 14px; color: #64748B;'>
-                                    🏆 <b>{sheet_b}特控上线：</b> {comp_te_all} 人 (较{sheet_a} {'+' if diff_te_count>=0 else ''}{diff_te_count} 人)，当前特控率 <b style='color:#10B981;'>{rate_comp_te}%</b> &nbsp;&nbsp;|&nbsp;&nbsp; 
-                                    🎓 <b>{sheet_b}本科上线：</b> {comp_ben_all} 人 (较{sheet_a} {'+' if diff_ben_count>=0 else ''}{diff_ben_count} 人)，当前本科率 <b style='color:#3B82F6;'>{rate_comp_ben}%</b>
-                                    </span>
-                                </div>
-                                """, unsafe_allow_html=True)
+                                if (line_te_a > 0 or line_ben_a > 0) or (line_te_b > 0 or line_ben_b > 0):
+                                    total_stu_comp = len(merged_df)
+                                    
+                                    base_te_all = len(merged_df[merged_df[base_score_col] >= line_te_a]) if line_te_a > 0 else 0
+                                    comp_te_all = len(merged_df[merged_df[comp_score_col] >= line_te_b]) if line_te_b > 0 else 0
+                                    base_ben_all = len(merged_df[merged_df[base_score_col] >= line_ben_a]) if line_ben_a > 0 else 0
+                                    comp_ben_all = len(merged_df[merged_df[comp_score_col] >= line_ben_b]) if line_ben_b > 0 else 0
 
-                                if '班级' in merged_df.columns:
+                                    rate_comp_te = round(comp_te_all / total_stu_comp * 100, 1) if total_stu_comp > 0 else 0
+                                    rate_comp_ben = round(comp_ben_all / total_stu_comp * 100, 1) if total_stu_comp > 0 else 0
+                                    
+                                    diff_te_count = comp_te_all - base_te_all
+                                    diff_ben_count = comp_ben_all - base_ben_all
+
+                                    st.markdown(f"""
+                                    <div style='background-color: #F8FAFC; padding: 15px; border-radius: 8px; border-left: 4px solid #10B981; margin-top: 15px; margin-bottom: 20px;'>
+                                        <span style='font-size: 15px; color: #334155;'><b>🌐 双考群体达标波动概况：</b></span><br>
+                                        <span style='font-size: 14px; color: #64748B;'>
+                                        🏆 <b>{sheet_b}特控上线：</b> {comp_te_all} 人 (较{sheet_a} {'+' if diff_te_count>=0 else ''}{diff_te_count} 人)，当前特控率 <b style='color:#10B981;'>{rate_comp_te}%</b> &nbsp;&nbsp;|&nbsp;&nbsp; 
+                                        🎓 <b>{sheet_b}本科上线：</b> {comp_ben_all} 人 (较{sheet_a} {'+' if diff_ben_count>=0 else ''}{diff_ben_count} 人)，当前本科率 <b style='color:#3B82F6;'>{rate_comp_ben}%</b>
+                                        </span>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+
                                     class_stats = []
-                                    for cls in sorted(merged_df['班级'].dropna().unique()):
+                                    for cls in sorted(merged_df['班级'].unique()):
                                         cdf = merged_df[merged_df['班级'] == cls]
                                         c_total = len(cdf)
                                         row_dict = {'班级': cls, '参考人数': c_total}
@@ -688,17 +696,14 @@ else:
                                 st.info(f"👆 请在上方输入框内设定两次考试的「特控线」或「本科线」，系统将立即为您计算班级达标率及边缘生转化情况！")
 
                         # ==========================================
-                        # 🤖 AI 智能分析 (不会再闪退！)
+                        # AI
                         # ==========================================
                         st.divider()
                         st.markdown("#### 🧠 全校学情进退步 AI 分析决策")
-                        
-                        # 使用独特的 key 将报告存在 session state 里，这样按钮点击也不会丢失
                         ai_compare_key = f"ai_comp_{sheet_a}_{sheet_b}_{compare_metric}"
-                        
                         if st.button("✨ 一键生成全校质量分析报告 (基于底层数据的深层洞察)"):
-                            with st.spinner("AI 正在汇聚全校数据，深度构建教学建议报告..."):
-                                class_avg_str = "\n".join([f"- 【{r['班级']}】平均波动: {r['分数进步']}分" for _, r in class_avg_progress.iterrows()]) if '班级' in merged_df.columns else "未分班"
+                            with st.spinner("AI 正在汇聚全校班级数据，深度构建教学建议报告..."):
+                                class_avg_str = "\n".join([f"- 【{r['班级']}】平均波动: {r['分数进步']}分" for _, r in class_avg_progress.iterrows()])
                                 ai_reply = get_ai_compare_advice(sheet_a, sheet_b, compare_metric, class_avg_str, t_names, b_names)
                                 st.session_state[ai_compare_key] = ai_reply
 
@@ -965,7 +970,6 @@ else:
                                         if my_c in c1 or c1 in my_c: return True
                                     return False
                                 
-                                # 修复：处理没有班级列的情况
                                 if cls_c: df_diag_my = df_diag[df_diag[cls_c].apply(is_my_scope)]
                                 else: df_diag_my = df_diag
                                 
